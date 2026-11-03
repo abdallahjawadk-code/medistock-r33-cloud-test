@@ -37,11 +37,14 @@ export const extraRead=`
         SELECT 1 FROM managed_readers managed WHERE managed.oid=u.oid
           AND NOT EXISTS (
             SELECT 1 FROM (
-              SELECT acl.grantee FROM pg_catalog.aclexplode(COALESCE(c.relacl,pg_catalog.acldefault('r',c.relowner))) acl
+              SELECT acl.grantee FROM pg_catalog.aclexplode(CASE
+                WHEN c.relacl IS NULL THEN pg_catalog.acldefault('r',c.relowner)
+                WHEN pg_catalog.cardinality(c.relacl)>0 THEN c.relacl ELSE NULL::aclitem[] END) acl
                WHERE acl.privilege_type='SELECT'
               UNION ALL
               SELECT acl.grantee FROM pg_catalog.pg_attribute att
-                CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(att.attacl,ARRAY[]::aclitem[])) acl
+                CROSS JOIN LATERAL pg_catalog.aclexplode(CASE
+                  WHEN pg_catalog.cardinality(att.attacl)>0 THEN att.attacl ELSE NULL::aclitem[] END) acl
                WHERE att.attrelid=c.oid AND att.attnum>0 AND NOT att.attisdropped AND acl.privilege_type='SELECT'
             ) app_acl
             WHERE CASE WHEN app_acl.grantee=0 THEN true

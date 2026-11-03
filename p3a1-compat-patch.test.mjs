@@ -12,3 +12,9 @@ test('compatibility has no role/ACL mutation, no general name-only exclusion and
  assert.ok(!/\b(?:ALTER\s+ROLE|GRANT\s+\w+\s+TO|REVOKE\s+\w+\s+FROM|SECURITY\s+DEFINER)\b/i.test(added));
  for(const required of ["grantor.rolname='supabase_admin'","NOT edge.admin_option","edge.inherit_option","edge.set_option","('anon'),('authenticated'),('service_role')","att.attacl","c.relacl","has_function_privilege"])assert.ok(added.includes(required));
 });
+test('NULL/empty ACLs are not turned into zero-dimensional arrays for aclexplode',()=>{
+ assert.ok(!extraRead.includes('ARRAY[]::aclitem[]'));
+ assert.ok(extraRead.includes('cardinality(att.attacl)>0'));
+ assert.ok(extraRead.includes('cardinality(c.relacl)>0'));
+ assert.ok(extraRead.includes("acldefault('r',c.relowner)"));
+});

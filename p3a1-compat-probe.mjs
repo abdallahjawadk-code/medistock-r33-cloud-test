@@ -71,6 +71,12 @@ try{
   assert.deepEqual(breaches,[]);
  });
  await check('MANAGED_ROLE_MEMBERSHIPS_AND_ATTRIBUTES_UNCHANGED',async()=>assert.deepEqual(await roleFP(),baselineRoles));
+ await check('EMPTY_COLUMN_ACL_IS_SAFE_AFTER_GRANT_REVOKE',async()=>{
+  await sql("BEGIN;GRANT SELECT(id) ON public.central_needs_catalog_years TO supabase_etl_admin;REVOKE SELECT(id) ON public.central_needs_catalog_years FROM supabase_etl_admin;DO $empty$ BEGIN IF EXISTS(SELECT 1 FROM phoenix_private.central_needs_capability_breaches_v1()) THEN RAISE EXCEPTION 'EMPTY_ACL_REJECTED'; END IF;END $empty$;ROLLBACK;");
+ });
+ await check('EMPTY_TABLE_ACL_IS_SAFE_WITHOUT_NEW_GRANTS',async()=>{
+  await sql("BEGIN;REVOKE ALL ON public.central_needs_catalog_years FROM r33_isolated_restore;DO $empty$ BEGIN IF EXISTS(SELECT 1 FROM phoenix_private.central_needs_capability_breaches_v1()) THEN RAISE EXCEPTION 'EMPTY_ACL_REJECTED'; END IF;END $empty$;ROLLBACK;");
+ });
  await check('PLATFORM_READ_VISIBILITY_EXISTS_BUT_NO_APPLICATION_WRITE',async()=>{
   for(const role of ['supabase_etl_admin','supabase_read_only_user']){
    const x=await sql(`BEGIN;SET LOCAL ROLE ${role};SELECT count(*) FROM public.central_needs_catalog_years;ROLLBACK;`);assert.ok(x.out.split('\n').includes('1'));
