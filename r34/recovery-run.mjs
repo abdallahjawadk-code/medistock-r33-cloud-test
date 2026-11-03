@@ -8,8 +8,8 @@ const IMAGE='supabase/postgres:17.11.0.003@sha256:7374d196da7e301512cc5329e18040
 const e=process.env,here=path.dirname(fileURLToPath(import.meta.url)),MAX=256*1024*1024,owned=[];let source,stage='ENTRY';
 async function docker(args,input,limit=MAX,strictWarnings=false){
  return new Promise((resolve,reject)=>{const childEnv=Object.fromEntries(Object.entries(e).filter(([k])=>!k.startsWith('R34_')&&!k.startsWith('ACTIONS_')&&!/TOKEN|PASSWORD|SECRET|PRIVATE_KEY/.test(k)));
-  const c=spawn('docker',args,{env:childEnv,stdio:['pipe','pipe','pipe']});const parts=[];let count=0,overflow=false,stderrBytes=0,sqlstate='';
-  c.stdout.on('data',b=>{count+=b.length;if(count>limit){overflow=true;c.kill();}else parts.push(b);});c.stderr.on('data',b=>{stderrBytes+=b.length;const m=b.toString().match(/ERROR:\s+([0-9A-Z]{5})(?::|\s|$)/);if(m)sqlstate=m[1];});c.on('error',()=>reject(Error('NATIVE_START')));c.on('close',code=>code===0&&!overflow&&(!strictWarnings||stderrBytes===0)?resolve(Buffer.concat(parts)):reject(Error('NATIVE_EXIT_OR_LIMIT'+(sqlstate?'_SQLSTATE_'+sqlstate:''))));c.stdin.on('error',()=>{});c.stdin.end(input);
+  const c=spawn('docker',args,{env:childEnv,stdio:['pipe','pipe','pipe']});const parts=[];let count=0,overflow=false,stderrBytes=0,sqlstate='',stderrTail='';
+  c.stdout.on('data',b=>{count+=b.length;if(count>limit){overflow=true;c.kill();}else parts.push(b);});c.stderr.on('data',b=>{stderrBytes+=b.length;stderrTail=(stderrTail+b.toString()).slice(-4096);const m=stderrTail.match(/ERROR:\s+([0-9A-Z]{5})(?::|\s|$)/);if(m)sqlstate=m[1];});c.on('error',()=>reject(Error('NATIVE_START')));c.on('close',code=>code===0&&!overflow&&(!strictWarnings||stderrBytes===0)?resolve(Buffer.concat(parts)):reject(Error('NATIVE_EXIT_OR_LIMIT'+(sqlstate?'_SQLSTATE_'+sqlstate:''))));c.stdin.on('error',()=>{});c.stdin.end(input);
  });
 }
 const name=kind=>'r34-'+kind+'-'+crypto.randomBytes(8).toString('hex');
@@ -122,7 +122,7 @@ export async function rehearsal(){
   stage='REHEARSAL_ORIGINAL_DATA_GUARD';await sql(b,'ALTER TABLE r34_synthetic.items ADD COLUMN extra text;');assert.deepEqual(await originalData(adapter(b),projection),projection);
   await sql(b,'UPDATE r34_synthetic.items SET qty=1201;');assert.notDeepEqual(await originalData(adapter(b),projection),projection,'DATA_DRIFT_MISSED');
   console.log('PASS_R34_SYNTHETIC_RESTORE_CATALOG_RLS_ACL_VAULT_NO_PRODUCTION_ACCESS');
- }catch(error){const code=/^NATIVE_EXIT_OR_LIMIT_SQLSTATE_[0-9A-Z]{5}$/.test(error.message)?'_'+error.message:'';console.error('HOLD_R34_'+stage+code);process.exitCode=2;}finally{await cleanup();}
+ }catch(error){const code=/^NATIVE_EXIT_OR_LIMIT(?:_SQLSTATE_[0-9A-Z]{5})?$/.test(error.message)?'_'+error.message:'_'+(error instanceof TypeError?'TYPE_ERROR':error instanceof SyntaxError?'JSON_SYNTAX_ERROR':'ASSERTION_OR_RUNTIME_ERROR');console.error('HOLD_R34_'+stage+code);for(const frame of String(error.stack).split('\n').slice(1,5))if(/^\s+at .*file:\/\/.+\.mjs:[0-9]+:[0-9]+\)?$/.test(frame))console.error(frame);process.exitCode=2;}finally{await cleanup();}
 }
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){
  try{await recover();}catch(error){const code=/^NATIVE_EXIT_OR_LIMIT_SQLSTATE_[0-9A-Z]{5}$/.test(error.message)?'_'+error.message:'';console.error('HOLD_R34_'+stage+code);process.exitCode=2;}finally{await cleanup();}
