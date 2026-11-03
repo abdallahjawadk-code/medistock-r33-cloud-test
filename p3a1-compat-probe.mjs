@@ -36,7 +36,8 @@ try{
  CREATE ROLE supabase_etl_admin LOGIN INHERIT BYPASSRLS REPLICATION;
  CREATE ROLE supabase_read_only_user LOGIN INHERIT BYPASSRLS;
  ALTER ROLE supabase_read_only_user SET default_transaction_read_only=on;
- SET ROLE supabase_admin; GRANT pg_read_all_data TO supabase_etl_admin,supabase_read_only_user; RESET ROLE;
+ GRANT pg_read_all_data TO supabase_admin WITH ADMIN OPTION;
+ GRANT pg_read_all_data TO supabase_etl_admin,supabase_read_only_user GRANTED BY supabase_admin;
  CREATE SCHEMA phoenix_private; CREATE SCHEMA phoenix_cn_policy;
  REVOKE ALL ON SCHEMA phoenix_private,phoenix_cn_policy FROM PUBLIC;
  REVOKE CREATE ON SCHEMA public FROM PUBLIC;`);
@@ -55,7 +56,11 @@ try{
   console.log(JSON.stringify({original_failure_reproduced:true,breaches,annual_ddl_rolled_back:true}));
  });
  await sql('BEGIN;'+annual.map(table).join('\n')+newSeal+'COMMIT;');
- await check('COMPAT_SEAL_ACCEPTS_ONLY_MEASURED_MANAGED_INHERITED_READ',async()=>assert.deepEqual(await seals(),[]));
+ await check('COMPAT_SEAL_ACCEPTS_ONLY_MEASURED_MANAGED_INHERITED_READ',async()=>{
+  const breaches=await seals();
+  if(breaches.length)console.log(JSON.stringify({synthetic_fixture_diagnostics:true,breaches,roles:await query("SELECT rolname,rolcanlogin,rolinherit,rolbypassrls,rolsuper,rolcreaterole,rolcreatedb,rolreplication,rolconnlimit,rolconfig,pg_has_role(oid,'pg_read_all_data','USAGE') usage FROM pg_roles WHERE rolname IN ('supabase_etl_admin','supabase_read_only_user')"),memberships:await query("SELECT m.rolname member,g.rolname parent,gr.rolname grantor,a.admin_option,a.inherit_option,a.set_option FROM pg_auth_members a JOIN pg_roles m ON m.oid=a.member JOIN pg_roles g ON g.oid=a.roleid JOIN pg_roles gr ON gr.oid=a.grantor WHERE m.rolname IN ('supabase_etl_admin','supabase_read_only_user')")}));
+  assert.deepEqual(breaches,[]);
+ });
  await check('MANAGED_ROLE_MEMBERSHIPS_AND_ATTRIBUTES_UNCHANGED',async()=>assert.deepEqual(await roleFP(),baselineRoles));
  await check('PLATFORM_READ_VISIBILITY_EXISTS_BUT_NO_APPLICATION_WRITE',async()=>{
   for(const role of ['supabase_etl_admin','supabase_read_only_user']){
@@ -66,9 +71,9 @@ try{
  const negatives=[
   ['ANON_DIRECT_SELECT',"GRANT SELECT ON public.central_needs_catalog_years TO anon"],
   ['AUTH_COLUMN_SELECT',"GRANT SELECT(id) ON public.central_needs_catalog_years TO authenticated"],
-  ['API_NO_INHERIT_SET_PLATFORM_ROLE',"GRANT supabase_read_only_user TO anon WITH INHERIT FALSE, SET TRUE"],
+  ['API_NO_INHERIT_SET_PLATFORM_ROLE',"GRANT supabase_read_only_user TO anon WITH INHERIT FALSE"],
   ['AUTH_INHERITS_PLATFORM_ROLE',"GRANT supabase_etl_admin TO authenticated"],
-  ['SERVICE_ROLE_SET_PLATFORM_ROLE',"GRANT supabase_read_only_user TO service_role WITH INHERIT FALSE, SET TRUE"],
+  ['SERVICE_ROLE_SET_PLATFORM_ROLE',"GRANT supabase_read_only_user TO service_role WITH INHERIT FALSE"],
   ['UNKNOWN_GLOBAL_READER',"CREATE ROLE unknown_reader NOLOGIN BYPASSRLS;GRANT pg_read_all_data TO unknown_reader"],
   ['MANAGED_EXPLICIT_SELECT',"GRANT SELECT ON public.central_needs_catalog_years TO supabase_read_only_user"],
   ['MANAGED_COLUMN_SELECT',"GRANT SELECT(id) ON public.central_needs_catalog_years TO supabase_etl_admin"],
@@ -85,7 +90,7 @@ try{
   ['API_OWNS_OBJECT',"CREATE TABLE public.attack(id integer);ALTER TABLE public.attack OWNER TO anon"],
   ['MANAGED_PROFILE_DRIFT',"ALTER ROLE supabase_etl_admin NOLOGIN"],
   ['MANAGED_ADMIN_OPTION_DRIFT',"SET ROLE supabase_admin;GRANT pg_read_all_data TO supabase_etl_admin WITH ADMIN OPTION;RESET ROLE"],
-  ['MANAGED_GRANTOR_DRIFT',"SET ROLE supabase_admin;REVOKE pg_read_all_data FROM supabase_etl_admin;RESET ROLE;GRANT pg_read_all_data TO supabase_etl_admin"],
+  ['MANAGED_GRANTOR_DRIFT',"REVOKE pg_read_all_data FROM supabase_etl_admin GRANTED BY supabase_admin;GRANT pg_read_all_data TO supabase_etl_admin"],
  ];
  for(const [label,setup] of negatives)await check(label,async()=>{
   await sql('BEGIN;'+setup+`;DO $negative$ BEGIN IF NOT EXISTS(SELECT 1 FROM phoenix_private.central_needs_capability_breaches_v1()) THEN RAISE EXCEPTION 'NEGATIVE_WAS_NOT_DETECTED'; END IF;END $negative$;ROLLBACK;`);
