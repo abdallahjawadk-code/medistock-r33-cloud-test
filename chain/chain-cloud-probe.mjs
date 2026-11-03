@@ -66,6 +66,8 @@ async function privateNegatives(schema,seal){
  ['MANAGED_WRITE',`GRANT INSERT ON ${schema}.${t} TO supabase_etl_admin`],
  ['MANAGED_TRIGGER',`GRANT TRIGGER ON ${schema}.${t} TO supabase_etl_admin`],
  ['MANAGED_MAINTAIN',`GRANT MAINTAIN ON ${schema}.${t} TO supabase_etl_admin`],
+ ['NOINHERIT_MAINTAIN_ALIAS','CREATE ROLE maintenance_alias NOLOGIN;GRANT pg_maintain TO maintenance_alias WITH INHERIT FALSE'],
+ ['API_SET_MAINTAIN','GRANT pg_maintain TO authenticated WITH INHERIT FALSE'],
  ['MANAGED_EXECUTE',`GRANT EXECUTE ON FUNCTION ${seal} TO supabase_etl_admin`],
  ['UNKNOWN_READER','CREATE ROLE unexpected_reader NOLOGIN BYPASSRLS;GRANT pg_read_all_data TO unexpected_reader'],
  ['API_SET_MANAGED','GRANT supabase_read_only_user TO authenticated WITH INHERIT FALSE'],
@@ -106,11 +108,25 @@ try{
  await sql(`CREATE ROLE supabase_admin NOLOGIN SUPERUSER;CREATE ROLE supabase_etl_admin LOGIN INHERIT BYPASSRLS REPLICATION;CREATE ROLE supabase_read_only_user LOGIN INHERIT BYPASSRLS;ALTER ROLE supabase_read_only_user SET default_transaction_read_only=on;GRANT pg_read_all_data TO supabase_admin WITH ADMIN OPTION;GRANT pg_read_all_data TO supabase_etl_admin,supabase_read_only_user GRANTED BY supabase_admin;`);
  await check('AFTER7_FULL_SCHEMA_P1_SEAL_AND_ABSENT8',async()=>{assert.equal((await query("SELECT md5(prosrc) h FROM pg_proc WHERE oid='phoenix_private.central_needs_capability_breaches_v1()'::regprocedure"))[0].h,'a0bd1f740bcc96adfb074073a9b2f587');assert.equal((await query("SELECT to_regclass('public.central_needs_catalog_years') IS NULL absent"))[0].absent,true);await seals();});
  const rolesBefore=await roleFP(),stockBefore=await stock();
- for(const row of aligned){stage='FULL_FILE_'+row.order;await sql(row.sql);steps.push({order:row.order,sha256:row.sha256,result:'PASS_FULL_FILE_DISPOSABLE'});console.log('PASS FULL_FILE_'+row.order);
+ for(const row of aligned){stage='FULL_FILE_'+row.order;
+  // Execute exactly the reviewed bytes: no injected diagnostics, altered
+  // verification, stripped transaction, or updated body pins at execution time.
+  assert.equal(sha(row.sql),row.sha256);
+  const applied=await sql(row.sql,true);
+  if(applied.code!==0){console.error(JSON.stringify({synthetic_error:applied.err.split('\n').find(l=>l.startsWith('ERROR:'))?.slice(0,400)}));throw Error('ISOLATED_SQL_FAILED');}
+  steps.push({order:row.order,sha256:row.sha256,executed_sha256:sha(row.sql),result:'PASS_FULL_FILE_DISPOSABLE'});console.log('PASS FULL_FILE_'+row.order);
+  if([13,15].includes(row.order)){const own=row.order===13?sealNames[2]:sealNames[3];console.log(JSON.stringify({diagnostic_only:true,step:row.order,central:await query('SELECT * FROM '+sealNames[0]),own:await query('SELECT * FROM '+own)}));}
   await check('AFTER'+row.order+'_ALL_SEALS_ROLES_STOCK',async()=>{await seals();assert.deepEqual(await roleFP(),rolesBefore);assert.deepEqual(await stock(),stockBefore);
    assert.equal((await query("SELECT md5(prosrc) h FROM pg_proc WHERE oid='phoenix_private.central_needs_capability_breaches_v1()'::regprocedure"))[0].h,row.central_seal_body_md5);});
   if([8,9,10].includes(row.order))await centralNegatives('AFTER'+row.order);
-  if(row.order===13)await privateNegatives('phoenix_c4',sealNames[2]);if(row.order===15)await privateNegatives('phoenix_monthly',sealNames[3]);
+  if(row.order===13){
+   await check('PG17_MAINTAIN_BUILTIN_SELF_EXPLAINS_PREVIOUS_GUARD_FAILURE',async()=>{
+    const builtin=(await query("SELECT rolcanlogin,has_table_privilege(oid,'phoenix_c4.proofs','MAINTAIN') intrinsic_maintain FROM pg_roles WHERE oid='pg_maintain'::regrole"))[0];
+    assert.equal(builtin.rolcanlogin,false);assert.equal(builtin.intrinsic_maintain,true);await seals();
+   });
+   await privateNegatives('phoenix_c4',sealNames[2]);
+  }
+  if(row.order===15)await privateNegatives('phoenix_monthly',sealNames[3]);
  }
  await runJourney({sql,query,check,seals,stock});
  await check('FINAL_ROLES_AND_STOCK_UNCHANGED',async()=>{assert.deepEqual(await roleFP(),rolesBefore);assert.deepEqual(await stock(),stockBefore);await seals();});

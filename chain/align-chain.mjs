@@ -46,9 +46,10 @@ function privateGuard(sql,schema,label,changes){
       ${privateEligibility}
     SELECT EXISTS(SELECT 1 FROM managed_readers) INTO managed_reader;
     IF (pg_has_role(r.oid,'pg_read_all_data','MEMBER') AND NOT managed_reader)
-      OR pg_has_role(r.oid,'pg_write_all_data','MEMBER') THEN
+      OR pg_has_role(r.oid,'pg_write_all_data','MEMBER')
+      OR (pg_has_role(r.oid,'pg_maintain','MEMBER') AND r.oid<>'pg_maintain'::regrole) THEN
       RETURN NEXT '${label}_inherited_global_data:'||r.rolname; END IF;`;
- sql=change(sql,oldGlobal,qualify,changes,'Recognize exact existing read-all membership, preserve every write-all and unknown-member rejection');
+ sql=change(sql,oldGlobal,qualify,changes,'Recognize exact existing read-all membership, preserve write-all rejection, reject every pg_maintain recipient including NOINHERIT/SET aliases');
  const oldSchema=`    IF has_schema_privilege(r.oid,'${schema}','USAGE,CREATE') THEN RETURN NEXT '${label}_schema_privilege:'||r.rolname; END IF;`;
  const newSchema=`    IF has_schema_privilege(r.oid,'${schema}','CREATE')
       OR (has_schema_privilege(r.oid,'${schema}','USAGE') AND NOT managed_reader)
@@ -58,11 +59,14 @@ function privateGuard(sql,schema,label,changes){
       THEN RETURN NEXT '${label}_schema_privilege:'||r.rolname; END IF;`;
  sql=change(sql,oldSchema,newSchema,changes,'Separate implicit read-all schema USAGE from CREATE and explicit/inherited application schema ACL');
  const oldTable="      AND (has_table_privilege(r.oid,c.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')\n        OR has_any_column_privilege(r.oid,c.oid,'SELECT,INSERT,UPDATE,REFERENCES')))";
- const newTable=`      AND (has_table_privilege(r.oid,c.oid,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN')
+ const newTable=`      AND (has_table_privilege(r.oid,c.oid,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+        -- pg_maintain itself is a built-in NOLOGIN capability, not a principal.
+        -- All other members, even NOINHERIT/SET aliases, remain rejected above.
+        OR (has_table_privilege(r.oid,c.oid,'MAINTAIN') AND NOT (r.oid='pg_maintain'::regrole AND NOT r.rolcanlogin))
         OR has_any_column_privilege(r.oid,c.oid,'INSERT,UPDATE,REFERENCES')
         OR ((has_table_privilege(r.oid,c.oid,'SELECT') OR has_any_column_privilege(r.oid,c.oid,'SELECT')) AND NOT managed_reader)
         OR ${explicitTableACL()}))`;
- return change(sql,oldTable,newTable,changes,'Preserve all write/column guards, add MAINTAIN, reject explicit SELECT while recognizing only inherited global read');
+ return change(sql,oldTable,newTable,changes,'Preserve writes and explicit SELECT rejection; check MAINTAIN except its intrinsic built-in NOLOGIN role itself, never skip that role from other checks');
 }
 export function align(manifest,app,accepted){
  assert.equal(sha(accepted),ACCEPTED_A1,'ACCEPTED_A1_DRIFT');

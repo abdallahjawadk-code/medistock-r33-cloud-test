@@ -77,16 +77,16 @@
     {
       "order": 13,
       "path": "SQL/P3C4_verified_membership_NOT_APPLIED.sql",
-      "sha256": "bdeb6bcb4e9dc8a630a06f8bbd95def30faac13bc7f2f9546447100cb1339806",
+      "sha256": "1f28f87665060abe6d8903d1634a28555a08b192e6ca19898e9424d1916f50fe",
       "original_sha256": "0e6112b48e26ce35681970a1765f333efb1bab33f1ab679ec8194c55840130a7",
       "central_seal_body_md5": "710d95a7fb51386f11e554c99a0c894a",
       "changed": true,
       "source_path": "supabase/candidates/P3C4_verified_membership_NOT_APPLIED.sql",
       "change_reasons": [
         "Track measured managed-reader eligibility without skipping any role",
-        "Recognize exact existing read-all membership, preserve every write-all and unknown-member rejection",
+        "Recognize exact existing read-all membership, preserve write-all rejection, reject every pg_maintain recipient including NOINHERIT/SET aliases",
         "Separate implicit read-all schema USAGE from CREATE and explicit/inherited application schema ACL",
-        "Preserve all write/column guards, add MAINTAIN, reject explicit SELECT while recognizing only inherited global read"
+        "Preserve writes and explicit SELECT rejection; check MAINTAIN except its intrinsic built-in NOLOGIN role itself, never skip that role from other checks"
       ]
     },
     {
@@ -102,16 +102,16 @@
     {
       "order": 15,
       "path": "SQL/R2B_monthly_policy_reference_NOT_APPLIED.sql",
-      "sha256": "78e71e99310e0e4568f2e78455736e673e5d0d57a6032005311ce7614b5793fe",
+      "sha256": "9d0fd09624107038e190639af035f2d3489415a842f2420a7c2186b81ec1295e",
       "original_sha256": "6db1e13411f5773c0f7ff281a2bbbc76154acdde1eaa8b4eb642d73ef72f44c6",
       "central_seal_body_md5": "710d95a7fb51386f11e554c99a0c894a",
       "changed": true,
       "source_path": "supabase/candidates/R2B_monthly_policy_reference_NOT_APPLIED.sql",
       "change_reasons": [
         "Track measured managed-reader eligibility without skipping any role",
-        "Recognize exact existing read-all membership, preserve every write-all and unknown-member rejection",
+        "Recognize exact existing read-all membership, preserve write-all rejection, reject every pg_maintain recipient including NOINHERIT/SET aliases",
         "Separate implicit read-all schema USAGE from CREATE and explicit/inherited application schema ACL",
-        "Preserve all write/column guards, add MAINTAIN, reject explicit SELECT while recognizing only inherited global read"
+        "Preserve writes and explicit SELECT rejection; check MAINTAIN except its intrinsic built-in NOLOGIN role itself, never skip that role from other checks"
       ]
     }
   ]
