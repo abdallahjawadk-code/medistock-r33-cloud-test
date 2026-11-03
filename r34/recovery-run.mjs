@@ -11,7 +11,7 @@ const e=process.env,here=path.dirname(fileURLToPath(import.meta.url)),MAX=256*10
 async function docker(args,input,limit=MAX,strictWarnings=false){
  return new Promise((resolve,reject)=>{const childEnv=Object.fromEntries(Object.entries(e).filter(([k])=>!k.startsWith('R34_')&&!k.startsWith('ACTIONS_')&&!/TOKEN|PASSWORD|SECRET|PRIVATE_KEY/.test(k)));
   const c=spawn('docker',args,{env:childEnv,stdio:['pipe','pipe','pipe']});const parts=[];let count=0,overflow=false,stderrBytes=0,sqlstate='',stderrTail='';
-  c.stdout.on('data',b=>{count+=b.length;if(count>limit){overflow=true;c.kill();}else parts.push(b);});c.stderr.on('data',b=>{stderrBytes+=b.length;stderrTail=(stderrTail+b.toString()).slice(-4096);const m=stderrTail.match(/ERROR:\s+([0-9A-Z]{5})(?::|\s|$)/);if(m)sqlstate=m[1];});c.on('error',()=>reject(Error('NATIVE_START')));c.on('close',code=>{if(code===0&&!overflow&&(!strictWarnings||stderrBytes===0))return resolve(Buffer.concat(parts));if(stage==='REHEARSAL_ORIGINAL_PROJECTION'&&args.includes('psql'))console.error('R34_SYNTHETIC_SQL_DIAGNOSTIC '+stderrTail.replace(/[a-fA-F0-9]{32,}/g,'REDACTED_HEX').slice(-2048));reject(Error('NATIVE_EXIT_OR_LIMIT'+(sqlstate?'_SQLSTATE_'+sqlstate:'_CODE_'+code+'_OVERFLOW_'+overflow)));});c.stdin.on('error',()=>{});c.stdin.end(input);
+  c.stdout.on('data',b=>{count+=b.length;if(count>limit){overflow=true;c.kill();}else parts.push(b);});c.stderr.on('data',b=>{stderrBytes+=b.length;stderrTail=(stderrTail+b.toString()).slice(-4096);const m=stderrTail.match(/ERROR:\s+([0-9A-Z]{5})(?::|\s|$)/);if(m)sqlstate=m[1];});c.on('error',()=>reject(Error('NATIVE_START')));c.on('close',code=>{if(code===0&&!overflow&&(!strictWarnings||stderrBytes===0))return resolve(Buffer.concat(parts));if(stage.startsWith('REHEARSAL_')&&args.some(a=>['psql','pg_dump','pg_dumpall','pg_restore'].includes(a)))console.error('R34_SYNTHETIC_SQL_DIAGNOSTIC '+stderrTail.replace(/[a-fA-F0-9]{32,}/g,'REDACTED_HEX').slice(-2048));reject(Error('NATIVE_EXIT_OR_LIMIT'+(sqlstate?'_SQLSTATE_'+sqlstate:'_CODE_'+code+'_OVERFLOW_'+overflow)));});c.stdin.on('error',()=>{});c.stdin.end(input);
  });
 }
 const name=kind=>'r34-'+kind+'-'+crypto.randomBytes(8).toString('hex');
@@ -83,7 +83,7 @@ async function recover(){
  assert.ok(!/[\r\n]/.test(e.R34_DB_PASSWORD));const escape=s=>s.replaceAll('\\','\\\\').replaceAll(':','\\:');
  await docker(['exec','-i',client,'sh','-c','umask 077; cat > /tmp/r34.pgpass'],[e.R34_DB_HOST,'5432','postgres',e.R34_DB_USER,e.R34_DB_PASSWORD].map(escape).join(':')+'\n');await docker(['exec','-i',client,'sh','-c','umask 077; cat > /tmp/r34-ca.pem'],e.R34_DB_CA_PEM);
  const connection=['--env','PGHOST='+e.R34_DB_HOST,'--env','PGPORT=5432','--env','PGDATABASE=postgres','--env','PGUSER='+e.R34_DB_USER,'--env','PGPASSFILE=/tmp/r34.pgpass','--env','PGSSLMODE=verify-full','--env','PGSSLROOTCERT=/tmp/r34-ca.pem','--env','PGCONNECT_TIMEOUT=12','--env','PGOPTIONS=-c default_transaction_read_only=on -c statement_timeout=120000 -c lock_timeout=1000'];
- stage='COMPLETE_ROLE_BACKUP';const roles=await docker(['exec',...connection,client,'pg_dumpall','--no-password','--roles-only'],undefined,16*1024*1024,true);
+ stage='COMPLETE_ROLE_BACKUP';const roles=await docker(['exec',...connection,client,'pg_dumpall','--no-password','--database=postgres','--roles-only'],undefined,16*1024*1024,true);
  stage='CONSISTENT_DATABASE_BACKUP';const dump=await docker(['exec',...connection,client,'pg_dump','--no-password','--format=custom','--create','--snapshot='+snap],undefined,MAX,true);
  const stored=[];let storageSize=0;for(const row of objects){const bytes=await storageObject(row);storageSize+=bytes.length;assert.ok(storageSize<=MAX/2,'STORAGE_TOTAL_LIMIT');stored.push({...row,sha256:sha(bytes),bytes:bytes.toString('base64')});}
  // A second read verifies each stored object remained unchanged during capture.
@@ -109,7 +109,7 @@ export async function rehearsal(){
   stage='REHEARSAL_SOURCE_CATALOG';let before;try{before=await snapshot(adapter(a));}catch(error){await diagnoseCatalog(adapter(a));throw error;}
   stage='REHEARSAL_ORIGINAL_PROJECTION';const projection=await originalProjection(adapter(a));
   stage='REHEARSAL_DATABASE_ARCHIVE';const dump=await docker(['exec',a,'pg_dump','-h','/tmp','-U','supabase_admin','-d','postgres','-Fc','--create']);
-  const roles=await docker(['exec',a,'pg_dumpall','-h','/tmp','-U','supabase_admin','-d','postgres','--roles-only']);
+  stage='REHEARSAL_ROLE_ARCHIVE';const roles=await docker(['exec',a,'pg_dumpall','-h','/tmp','-U','supabase_admin','--database=postgres','--roles-only']);
   // A separate provider-aligned bootstrap restores the original role dump.
   stage='REHEARSAL_TARGET_AND_KEY_RECOVERY';const b=await isolated();
   const syntheticRoot=await docker(['exec',a,'cat','/etc/postgresql-custom/pgsodium_root.key']);
