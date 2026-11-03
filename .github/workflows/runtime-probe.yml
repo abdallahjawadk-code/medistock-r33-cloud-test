@@ -1,0 +1,52 @@
+{
+  "name": "R33 runtime_probe — PostgreSQL and Vault",
+  "on": {
+    "workflow_dispatch": {
+      "inputs": {
+        "approved_tools_sha": {
+          "description": "Exact owner-reviewed runtime-probe commit SHA",
+          "required": true,
+          "type": "string"
+        }
+      }
+    }
+  },
+  "permissions": {
+    "contents": "read"
+  },
+  "concurrency": {
+    "group": "r33-runtime-probe",
+    "cancel-in-progress": false
+  },
+  "jobs": {
+    "runtime_probe": {
+      "if": "github.event_name == 'workflow_dispatch' && github.actor == 'abdallahjawadk-code' && github.repository == 'abdallahjawadk-code/medistock-r33-cloud-test' && github.ref == 'refs/heads/master'",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 20,
+      "env": {
+        "R33_APPROVED_TOOLS_SHA": "${{ inputs.approved_tools_sha }}"
+      },
+      "steps": [
+        {
+          "name": "Check out reviewed runtime-probe commit",
+          "uses": "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0",
+          "with": {
+            "ref": "${{ github.sha }}",
+            "persist-credentials": false
+          }
+        },
+        {
+          "name": "Set up Node without cache",
+          "uses": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
+          "with": {
+            "node-version": 22
+          }
+        },
+        {
+          "name": "Run credential-free isolated runtime probe",
+          "run": "node runtime-probe.mjs"
+        }
+      ]
+    }
+  }
+}
