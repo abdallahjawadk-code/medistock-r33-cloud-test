@@ -41,9 +41,11 @@ jobs:
           path: app
           persist-credentials: false
       - name: Verify new trust, TLS, quota and identity guards
-        run: node --test r34/policy.test.mjs r34/recovery-crypto.test.mjs r34/restore-roles.test.mjs r34/source-contract.test.mjs
+        run: node --test r34/policy.test.mjs r34/recovery-crypto.test.mjs r34/restore-roles.test.mjs r34/source-contract.test.mjs r34/runtime-source.test.mjs
       - name: Reconstruct exact thirteen source files without executing SQL
         run: node r34/verify-preparation.mjs
+      - name: Parse Linux bootstrap before starting any container
+        run: bash -n r34/restore-runtime.sh
       - name: Rehearse exact archive restore and Vault with synthetic data only
         run: node r34/rehearsal.mjs
   capture-and-restore:
