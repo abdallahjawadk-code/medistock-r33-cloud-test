@@ -15,6 +15,7 @@ export function restorePlan(toc,extensions){
   if(extension){assert.ok(extensions.some(x=>x[0]===extension[1]),'UNRECORDED_EXTENSION');assert.ok(!extensionEntries.includes(extension[1]));extensionEntries.push(extension[1]);continue;}
   remaining.push(line);
  }
+ const declared=toc.match(/^;\s*TOC Entries:\s*(\d+)\s*$/m);assert.ok(declared,'DECLARED_TOC_COUNT');assert.equal(ids.size,Number(declared[1]),'ALL_NATIVE_TOC_IDS_LISTED');
  assert.equal(databases,1,'EXACT_DATABASE_ENTRY');assert.deepEqual([...schemas].sort(),[...namespaces].sort(),'EXTENSION_SCHEMAS_PRESENT');
  for(const x of extensions)if(x[0]!=='plpgsql')assert.ok(extensionEntries.includes(x[0]),'EXTENSION_TOC_COVERAGE');
  assert.equal(initial.length+remaining.length+extensionEntries.length,ids.size,'COMPLETE_TOC_PARTITION');

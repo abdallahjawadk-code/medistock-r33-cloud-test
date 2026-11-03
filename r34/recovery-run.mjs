@@ -1,6 +1,7 @@
 // Only an owner-reviewed, manually dispatched GitHub-hosted Linux runner.
 // Hosted connection is read-only. Every SQL candidate is confined to network-none PostgreSQL.
-import fs from 'node:fs';import path from 'node:path';import assert from 'node:assert/strict';import crypto from 'node:crypto';import {spawn} from 'node:child_process';import {createRequire} from 'node:module';import {fileURLToPath} from 'node:url';
+import fs from 'node:fs';import path from 'node:path';import assert from 'node:assert/strict';import crypto from 'node:crypto';import {isDeepStrictEqual} from 'node:util';
+import {spawn} from 'node:child_process';import {createRequire} from 'node:module';import {fileURLToPath} from 'node:url';
 import {authorize,endpoint,identity,quota,TARGET,SYSTEM_IDENTIFIER} from './policy.mjs';
 import {verifySourceContract} from './source-contract.mjs';
 import {restorePlan} from './restore-plan.mjs';
@@ -18,11 +19,15 @@ async function docker(args,input,limit=MAX,strictWarnings=false){
 const name=kind=>'r34-'+kind+'-'+crypto.randomBytes(8).toString('hex');
 async function sql(container,statement,db='postgres',user='supabase_admin'){assert.ok(owned.includes(container),'OWNED_ISOLATED_ONLY');assert.ok(['supabase_admin','postgres'].includes(user),'RESTORE_PRINCIPAL');return (await docker(['exec','-i',container,'psql','-X','-q','-h','/tmp','-U',user,'-d',db,'-v','ON_ERROR_STOP=1','-v','VERBOSITY=sqlstate','-At'],statement)).toString();}
 function adapter(container){return {query:async(statement,values)=>{assert.ok(!values);return {rows:JSON.parse((await sql(container,"SELECT coalesce(json_agg(r),'[]'::json) FROM ("+statement.replace(/;\s*$/,'')+') r;')).trim())};}};}
+function assertRestored(actual,expected){
+ try{assert.deepEqual(actual,expected,'RESTORE_DATA_SCHEMA_ROLES_ACL_RLS_MISMATCH');}
+ catch(error){const sections=[];for(const key of new Set([...Object.keys(actual.catalog),...Object.keys(expected.catalog)]))if(!isDeepStrictEqual(actual.catalog[key],expected.catalog[key]))sections.push('catalog.'+key);for(const key of ['data','sequences'])if(!isDeepStrictEqual(actual[key],expected[key]))sections.push(key);console.error('R34_RESTORE_MISMATCH_SECTIONS '+sections.join(','));throw error;}
+}
 const ident=s=>'"'+s.replaceAll('"','""')+'"';const literal=s=>"'"+s.replaceAll("'","''")+"'";
 async function restoreDatabase(container,dump,extensions,prefix){
  assert.ok(owned.includes(container));stage=prefix+'_ARCHIVE_TOC';
  await docker(['exec','-i',container,'sh','-c','umask 077; cat > /tmp/r34-archive.dump'],dump);
- const plan=restorePlan((await docker(['exec',container,'pg_restore','--list','/tmp/r34-archive.dump'])).toString(),extensions);
+ const plan=restorePlan((await docker(['exec',container,'pg_restore','--list','--create','--verbose','/tmp/r34-archive.dump'])).toString(),extensions);
  for(const [name,bytes] of [['initial',plan.initial],['remaining',plan.remaining]])await docker(['exec','-i',container,'sh','-c','umask 077; cat > /tmp/r34-'+name+'.list'],bytes);
  const base=['exec',container,'pg_restore','-h','/tmp','-U','supabase_admin','--exit-on-error'];
  stage=prefix+'_DATABASE_AND_EXTENSION_SCHEMAS';await docker([...base,'-d','template1','--clean','--if-exists','--create','--use-list=/tmp/r34-initial.list','/tmp/r34-archive.dump']);
@@ -51,7 +56,7 @@ async function transfer(url,method,body){
  const r=await fetch(url,{method,body,headers:body?{'Content-Type':'application/octet-stream'}:{},redirect:'error',signal:AbortSignal.timeout(120000)});assert.ok(r.ok,'R2_TRANSFER');
  if(method!=='GET')return;const parts=[];let size=0;for await(const b of r.body){size+=b.length;assert.ok(size<=MAX*2,'DOWNLOAD_LIMIT');parts.push(b);}return Buffer.concat(parts);
 }
-async function storageRows(c){return (await c.query('SELECT bucket_id,name,metadata FROM storage.objects ORDER BY bucket_id,name')).rows;}
+async function storageRows(c){return (await c.query('SELECT bucket_id,name,metadata,version FROM storage.objects ORDER BY bucket_id,name')).rows;}
 async function storageObject(row){
  assert.ok(/^[a-zA-Z0-9_.-]+$/.test(row.bucket_id));assert.ok(row.name.split('/').every(x=>x&&x!=='.'&&x!=='..'));
  const objectPath=row.bucket_id+'/'+row.name.split('/').map(encodeURIComponent).join('/');
@@ -108,11 +113,11 @@ async function recover(){
  const stored=[];let storageSize=0;for(const row of objects){const bytes=await storageObject(row);storageSize+=bytes.length;assert.ok(storageSize<=MAX/2,'STORAGE_TOTAL_LIMIT');stored.push({...row,sha256:sha(bytes),bytes:bytes.toString('base64')});}
  // A second read verifies each stored object remained unchanged during capture.
  for(const row of stored)assert.equal(sha(await storageObject(row)),row.sha256,'STORAGE_CHANGED_DURING_CAPTURE');assert.deepEqual(await snapshot(source),before,'SOURCE_SEQUENCE_OR_CATALOG_DRIFT');
- await source.query('COMMIT');await source.end();source=null;await docker(['rm','-f',client]);owned.splice(owned.indexOf(client),1);
+ await source.query('COMMIT');assert.deepEqual(await storageRows(source),objects,'STORAGE_VERSION_OR_METADATA_CHANGED_DURING_CAPTURE');await source.end();source=null;await docker(['rm','-f',client]);owned.splice(owned.indexOf(client),1);
  const plain=Buffer.from(JSON.stringify({format:'R34_FULL_LOGICAL_DATABASE_STORAGE_EXTERNAL_V1',target:TARGET,identity:id,captured_at:new Date().toISOString(),before,stockBefore,external_recovery:ext,storage:stored,roles:roles.toString('base64'),dump:dump.toString('base64')}));assert.ok(plain.length<=MAX,'ARCHIVE_LIMIT');
  stage='ENCRYPTED_INDEPENDENT_BACKUP';const encrypted=encrypt(plain,e.R34_BACKUP_PUBLIC_KEY_PEM);await transfer(e.R34_R2_PUT_URL,'PUT',encrypted);const downloaded=await transfer(e.R34_R2_GET_URL,'GET');assert.equal(sha(downloaded),sha(encrypted));const recovered=decrypt(downloaded,e.R34_BACKUP_PRIVATE_KEY_PEM);assert.equal(sha(recovered),sha(plain));const archive=JSON.parse(recovered);assert.equal(archive.identity.system_identifier,SYSTEM_IDENTIFIER);console.log(JSON.stringify({event:'R34_ENCRYPTED_BACKUP_DOWNLOADED_VERIFIED',target:TARGET,run_id:e.GITHUB_RUN_ID,sha256:sha(encrypted),bytes:encrypted.length,restore_pass:false}));
  stage='EXACT_DATABASE_RESTORE';await sql(restored,roleReplay(Buffer.from(archive.roles,'base64')));await restoreDatabase(restored,Buffer.from(archive.dump,'base64'),archive.before.catalog.extensions,'RESTORE');
- const c=adapter(restored);assert.notEqual((await c.query('SELECT system_identifier::text id FROM pg_control_system()')).rows[0].id,SYSTEM_IDENTIFIER);assert.deepEqual(await snapshot(c),archive.before,'RESTORE_DATA_SCHEMA_ROLES_ACL_RLS_MISMATCH');const projection=await originalProjection(c);
+ const c=adapter(restored);assert.notEqual((await c.query('SELECT system_identifier::text id FROM pg_control_system()')).rows[0].id,SYSTEM_IDENTIFIER);assertRestored(await snapshot(c),archive.before);const projection=await originalProjection(c);
  for(const object of archive.storage)assert.equal(sha(Buffer.from(object.bytes,'base64')),object.sha256);assert.deepEqual(await stock(c),archive.stockBefore);stage='RESTORED_DATABASE_CHAIN';const applied=[];
  for(const f of files){assert.equal(sha(f.bytes),f.sha256);await sql(restored,f.bytes,'postgres','postgres');await verifySeals(c);assert.deepEqual(await stock(c),stockBefore,'STOCK_OR_FEFO_DRIFT');const now=await snapshot(c);assert.deepEqual(now.catalog.roles,before.catalog.roles,'ROLE_TRAITS_DRIFT');assert.deepEqual(now.catalog.memberships,before.catalog.memberships,'ROLE_GRAPH_DRIFT');assert.deepEqual(await originalData(c,projection),projection,'ORIGINAL_TABLE_DATA_DRIFT');applied.push({order:f.order,sha256:f.sha256,status:'PASS'});}
  stage='RESTORED_NEGATIVE_GUARDS';const count=await negatives(restored);await verifySeals(c,true);assert.deepEqual(await stock(c),stockBefore);
@@ -140,7 +145,7 @@ export async function rehearsal(){
   }finally{syntheticRoot.fill(0);}
   await sql(b,roleReplay(roles));
   await restoreDatabase(b,dump,before.catalog.extensions,'REHEARSAL_RESTORE');
-  stage='REHEARSAL_CATALOG_COMPARISON';assert.deepEqual(await snapshot(adapter(b)),before,'SYNTHETIC_FULL_RESTORE_MISMATCH');
+  stage='REHEARSAL_CATALOG_COMPARISON';assertRestored(await snapshot(adapter(b)),before);
   stage='REHEARSAL_RESTORED_VAULT_DECRYPT';assert.equal((await sql(b,"SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name='r34-runtime'" )).trim(),'R34-synthetic-updated','RESTORED_VAULT_DECRYPT');
   stage='REHEARSAL_ORIGINAL_DATA_GUARD';await sql(b,'ALTER TABLE r34_synthetic.items ADD COLUMN extra text;');assert.deepEqual(await originalData(adapter(b),projection),projection);
   await sql(b,'UPDATE r34_synthetic.items SET qty=1201;');assert.notDeepEqual(await originalData(adapter(b),projection),projection,'DATA_DRIFT_MISSED');
