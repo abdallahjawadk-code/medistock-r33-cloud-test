@@ -1,6 +1,6 @@
-import {test} from 'node:test';import assert from 'node:assert/strict';import {verifySourceContract} from './source-contract.mjs';
+import {test} from 'node:test';import assert from 'node:assert/strict';import {verifySourceContract,providerExtensions} from './source-contract.mjs';
 test('source definition, ACL, API privilege and previous-application drift block capture',async()=>{
  const good={api_roles_safe:true,annual_catalog_absent:true,c4_absent:true,monthly_absent:true,seal:{sha256:'a65980681b84a1cea146c45497aaaf35176a3ec1a7d05c5fe66aa1f56ccf23d3',owner:'postgres',acl:'{postgres=X/postgres}',security_definer:false,config:['search_path=pg_catalog, pg_temp']},predecessors:[{name:'central_needs_sod_excluded_v1',md5:'1b179e1da2075816a072c1f6a9935167'},{name:'central_material_assert_reviewer_v1',md5:'75f420c1cf7b80d2bffdb07609ee7b76'},{name:'central_needs_staffing_readiness_v1',md5:'401791829f66ce810a1cb77cedf5aa5a'}]};
- const client=row=>({query:async()=>({rows:[row]})});await verifySourceContract(client(good));
- for(const change of [{api_roles_safe:false},{annual_catalog_absent:false},{seal:null},{seal:{...good.seal,acl:'{=X/postgres}'}},{seal:{...good.seal,sha256:'0'.repeat(64)}},{predecessors:[]}])await assert.rejects(verifySourceContract(client({...good,...change})));
+ good.extensions=providerExtensions;const client=row=>({query:async()=>({rows:[row]})});await verifySourceContract(client(good));
+ for(const change of [{extensions:[]},{extensions:providerExtensions.map(x=>[...x.slice(0,3),'wrong_owner'])},{api_roles_safe:false},{annual_catalog_absent:false},{seal:null},{seal:{...good.seal,acl:'{=X/postgres}'}},{seal:{...good.seal,sha256:'0'.repeat(64)}},{predecessors:[]}])await assert.rejects(verifySourceContract(client({...good,...change})));
 });

@@ -3,6 +3,7 @@
 import fs from 'node:fs';import path from 'node:path';import assert from 'node:assert/strict';import crypto from 'node:crypto';import {spawn} from 'node:child_process';import {createRequire} from 'node:module';import {fileURLToPath} from 'node:url';
 import {authorize,endpoint,identity,quota,TARGET,SYSTEM_IDENTIFIER} from './policy.mjs';
 import {verifySourceContract} from './source-contract.mjs';
+import {restorePlan} from './restore-plan.mjs';
 import {roleReplay} from './restore-roles.mjs';
 import {encrypt,decrypt,sha,transferURL} from './recovery-crypto.mjs';import {buildSources} from './verify-preparation.mjs';
 import {snapshot,originalProjection,originalData,diagnoseCatalog} from './catalog.mjs';import {isolationFlags,verifyIsolation} from '../chain/runtime-policy.mjs';
@@ -15,8 +16,27 @@ async function docker(args,input,limit=MAX,strictWarnings=false){
  });
 }
 const name=kind=>'r34-'+kind+'-'+crypto.randomBytes(8).toString('hex');
-async function sql(container,statement,db='postgres'){assert.ok(owned.includes(container),'OWNED_ISOLATED_ONLY');return (await docker(['exec','-i',container,'psql','-X','-q','-h','/tmp','-U','supabase_admin','-d',db,'-v','ON_ERROR_STOP=1','-v','VERBOSITY=sqlstate','-At'],statement)).toString();}
+async function sql(container,statement,db='postgres',user='supabase_admin'){assert.ok(owned.includes(container),'OWNED_ISOLATED_ONLY');assert.ok(['supabase_admin','postgres'].includes(user),'RESTORE_PRINCIPAL');return (await docker(['exec','-i',container,'psql','-X','-q','-h','/tmp','-U',user,'-d',db,'-v','ON_ERROR_STOP=1','-v','VERBOSITY=sqlstate','-At'],statement)).toString();}
 function adapter(container){return {query:async(statement,values)=>{assert.ok(!values);return {rows:JSON.parse((await sql(container,"SELECT coalesce(json_agg(r),'[]'::json) FROM ("+statement.replace(/;\s*$/,'')+') r;')).trim())};}};}
+const ident=s=>'"'+s.replaceAll('"','""')+'"';const literal=s=>"'"+s.replaceAll("'","''")+"'";
+async function restoreDatabase(container,dump,extensions,prefix){
+ assert.ok(owned.includes(container));stage=prefix+'_ARCHIVE_TOC';
+ await docker(['exec','-i',container,'sh','-c','umask 077; cat > /tmp/r34-archive.dump'],dump);
+ const plan=restorePlan((await docker(['exec',container,'pg_restore','--list','/tmp/r34-archive.dump'])).toString(),extensions);
+ for(const [name,bytes] of [['initial',plan.initial],['remaining',plan.remaining]])await docker(['exec','-i',container,'sh','-c','umask 077; cat > /tmp/r34-'+name+'.list'],bytes);
+ const base=['exec',container,'pg_restore','-h','/tmp','-U','supabase_admin','--exit-on-error'];
+ stage=prefix+'_DATABASE_AND_EXTENSION_SCHEMAS';await docker([...base,'-d','template1','--clean','--if-exists','--create','--use-list=/tmp/r34-initial.list','/tmp/r34-archive.dump']);
+ stage=prefix+'_RECORDED_EXTENSION_OWNERS';
+ for(const x of extensions){
+  const found=(await adapter(container).query("SELECT e.extname,e.extversion,n.nspname,pg_get_userbyid(e.extowner) owner FROM pg_extension e JOIN pg_namespace n ON n.oid=e.extnamespace WHERE e.extname="+literal(x[0]))).rows;
+  if(found.length){assert.deepEqual([found[0].extname,found[0].extversion,found[0].nspname,found[0].owner],x,'PREEXISTING_EXTENSION_MUST_MATCH');continue;}
+  await sql(container,'CREATE EXTENSION '+ident(x[0])+' WITH SCHEMA '+ident(x[2])+' VERSION '+literal(x[1])+';','postgres',x[3]);
+ }
+ // --create enables DATABASE PROPERTIES/ACL, but the DATABASE entry itself
+ // was replayed already and is excluded from this complete remaining list.
+ stage=prefix+'_ALL_REMAINING_OBJECTS_DATA_ACL';await docker([...base,'-d','postgres','--create','--use-list=/tmp/r34-remaining.list','/tmp/r34-archive.dump']);
+ return {total:plan.total,initial:plan.initial_entries,extensions:plan.extension_entries,remaining:plan.remaining_entries};
+}
 async function isolated(){
  const n=name('restore'),ids=(await docker(['run','--rm','--network','none','--read-only','--user','postgres','--entrypoint','/bin/sh',IMAGE,'-c','id -u;id -g'])).toString().trim().split('\n');owned.push(n);
  await docker(['run','-d','--name',n,...isolationFlags(...ids),'--user','postgres','--entrypoint','/bin/bash',IMAGE,'-c',fs.readFileSync(path.join(here,'restore-runtime.sh'),'utf8')]);
@@ -91,10 +111,10 @@ async function recover(){
  await source.query('COMMIT');await source.end();source=null;await docker(['rm','-f',client]);owned.splice(owned.indexOf(client),1);
  const plain=Buffer.from(JSON.stringify({format:'R34_FULL_LOGICAL_DATABASE_STORAGE_EXTERNAL_V1',target:TARGET,identity:id,captured_at:new Date().toISOString(),before,stockBefore,external_recovery:ext,storage:stored,roles:roles.toString('base64'),dump:dump.toString('base64')}));assert.ok(plain.length<=MAX,'ARCHIVE_LIMIT');
  stage='ENCRYPTED_INDEPENDENT_BACKUP';const encrypted=encrypt(plain,e.R34_BACKUP_PUBLIC_KEY_PEM);await transfer(e.R34_R2_PUT_URL,'PUT',encrypted);const downloaded=await transfer(e.R34_R2_GET_URL,'GET');assert.equal(sha(downloaded),sha(encrypted));const recovered=decrypt(downloaded,e.R34_BACKUP_PRIVATE_KEY_PEM);assert.equal(sha(recovered),sha(plain));const archive=JSON.parse(recovered);assert.equal(archive.identity.system_identifier,SYSTEM_IDENTIFIER);console.log(JSON.stringify({event:'R34_ENCRYPTED_BACKUP_DOWNLOADED_VERIFIED',target:TARGET,run_id:e.GITHUB_RUN_ID,sha256:sha(encrypted),bytes:encrypted.length,restore_pass:false}));
- stage='EXACT_DATABASE_RESTORE';await sql(restored,roleReplay(Buffer.from(archive.roles,'base64')));await docker(['exec','-i',restored,'pg_restore','-h','/tmp','-U','supabase_admin','-d','template1','--clean','--if-exists','--create','--use-set-session-authorization','--exit-on-error'],Buffer.from(archive.dump,'base64'));
+ stage='EXACT_DATABASE_RESTORE';await sql(restored,roleReplay(Buffer.from(archive.roles,'base64')));await restoreDatabase(restored,Buffer.from(archive.dump,'base64'),archive.before.catalog.extensions,'RESTORE');
  const c=adapter(restored);assert.notEqual((await c.query('SELECT system_identifier::text id FROM pg_control_system()')).rows[0].id,SYSTEM_IDENTIFIER);assert.deepEqual(await snapshot(c),archive.before,'RESTORE_DATA_SCHEMA_ROLES_ACL_RLS_MISMATCH');const projection=await originalProjection(c);
  for(const object of archive.storage)assert.equal(sha(Buffer.from(object.bytes,'base64')),object.sha256);assert.deepEqual(await stock(c),archive.stockBefore);stage='RESTORED_DATABASE_CHAIN';const applied=[];
- for(const f of files){assert.equal(sha(f.bytes),f.sha256);await sql(restored,Buffer.concat([Buffer.from('SET SESSION AUTHORIZATION postgres;\n'),f.bytes]));await verifySeals(c);assert.deepEqual(await stock(c),stockBefore,'STOCK_OR_FEFO_DRIFT');const now=await snapshot(c);assert.deepEqual(now.catalog.roles,before.catalog.roles,'ROLE_TRAITS_DRIFT');assert.deepEqual(now.catalog.memberships,before.catalog.memberships,'ROLE_GRAPH_DRIFT');assert.deepEqual(await originalData(c,projection),projection,'ORIGINAL_TABLE_DATA_DRIFT');applied.push({order:f.order,sha256:f.sha256,status:'PASS'});}
+ for(const f of files){assert.equal(sha(f.bytes),f.sha256);await sql(restored,f.bytes,'postgres','postgres');await verifySeals(c);assert.deepEqual(await stock(c),stockBefore,'STOCK_OR_FEFO_DRIFT');const now=await snapshot(c);assert.deepEqual(now.catalog.roles,before.catalog.roles,'ROLE_TRAITS_DRIFT');assert.deepEqual(now.catalog.memberships,before.catalog.memberships,'ROLE_GRAPH_DRIFT');assert.deepEqual(await originalData(c,projection),projection,'ORIGINAL_TABLE_DATA_DRIFT');applied.push({order:f.order,sha256:f.sha256,status:'PASS'});}
  stage='RESTORED_NEGATIVE_GUARDS';const count=await negatives(restored);await verifySeals(c,true);assert.deepEqual(await stock(c),stockBefore);
  console.log(JSON.stringify({status:'PASS_FULL_BACKUP_RESTORE_AND_SQL_CHAIN',target:TARGET,source_system_identifier:SYSTEM_IDENTIFIER,image:IMAGE,encrypted_backup_sha256:sha(encrypted),independent_download_decrypt_restore:true,table_comparisons:before.data.length,storage_objects_verified:stored.length,negative_guard_checks:count,files:applied,production_sql_applied:0,migration_execution_principal:'postgres',real_auth_postgrest_service_acceptance:'NOT_RUN',external_configuration_coverage:'OWNER_VERIFIED_BUNDLE_PRESERVED_NOT_INDEPENDENTLY_REBUILT'}));
  for(const b of [roles,dump,plain,recovered])b.fill(0);
@@ -105,7 +125,7 @@ export async function rehearsal(){
   assert.equal(process.platform,'linux');assert.equal(e.RUNNER_ENVIRONMENT,'github-hosted');authorize(e);
   for(const k of Object.keys(e))assert.ok(!/R34_(DB_|STORAGE_|BACKUP_|R2_|EXTERNAL_)/.test(k),'REHEARSAL_HAS_NO_PRODUCTION_INPUT');
   stage='REHEARSAL_IMAGE_AND_SOURCE_VAULT';await docker(['pull',IMAGE]);const a=await isolated();
-  await sql(a,"CREATE ROLE postgres NOSUPERUSER LOGIN CREATEDB CREATEROLE BYPASSRLS;CREATE ROLE supabase_privileged_role NOLOGIN;GRANT supabase_privileged_role TO postgres;CREATE SCHEMA extensions AUTHORIZATION postgres;ALTER DATABASE postgres OWNER TO postgres;SET SESSION AUTHORIZATION postgres;CREATE EXTENSION pg_stat_statements SCHEMA extensions;CREATE EXTENSION pgcrypto SCHEMA extensions;CREATE EXTENSION \"uuid-ossp\" SCHEMA extensions;RESET SESSION AUTHORIZATION;CREATE EXTENSION pg_trgm SCHEMA extensions;CREATE ROLE r34_synthetic_reader NOLOGIN;CREATE SCHEMA r34_synthetic;CREATE TABLE r34_synthetic.items(id int PRIMARY KEY,qty int);INSERT INTO r34_synthetic.items VALUES(1,1200);ALTER TABLE r34_synthetic.items ENABLE ROW LEVEL SECURITY;GRANT USAGE ON SCHEMA r34_synthetic TO r34_synthetic_reader;GRANT SELECT ON r34_synthetic.items TO r34_synthetic_reader;CREATE POLICY synthetic_read ON r34_synthetic.items FOR SELECT TO r34_synthetic_reader USING(id=1);CREATE FUNCTION r34_synthetic.identity_qty(v int) RETURNS int LANGUAGE sql IMMUTABLE AS 'SELECT v';CREATE TYPE r34_synthetic.unit AS ENUM('box','test');");
+  await sql(a,"CREATE ROLE postgres NOSUPERUSER LOGIN CREATEDB CREATEROLE BYPASSRLS;CREATE ROLE supabase_privileged_role NOLOGIN;GRANT supabase_privileged_role TO postgres;CREATE SCHEMA extensions AUTHORIZATION postgres;ALTER DATABASE postgres OWNER TO postgres;SET SESSION AUTHORIZATION postgres;CREATE EXTENSION pg_stat_statements SCHEMA extensions;CREATE EXTENSION pgcrypto SCHEMA extensions;CREATE EXTENSION \"uuid-ossp\" SCHEMA extensions;RESET SESSION AUTHORIZATION;CREATE EXTENSION pg_trgm SCHEMA extensions;CREATE ROLE r34_synthetic_auth_owner NOLOGIN;CREATE SCHEMA r34_synthetic_auth AUTHORIZATION r34_synthetic_auth_owner;CREATE TABLE r34_synthetic_auth.original(id int);ALTER TABLE r34_synthetic_auth.original OWNER TO r34_synthetic_auth_owner;CREATE ROLE r34_synthetic_reader NOLOGIN;CREATE SCHEMA r34_synthetic;CREATE TABLE r34_synthetic.items(id int PRIMARY KEY,qty int);INSERT INTO r34_synthetic.items VALUES(1,1200);ALTER TABLE r34_synthetic.items ENABLE ROW LEVEL SECURITY;GRANT USAGE ON SCHEMA r34_synthetic TO r34_synthetic_reader;GRANT SELECT ON r34_synthetic.items TO r34_synthetic_reader;CREATE POLICY synthetic_read ON r34_synthetic.items FOR SELECT TO r34_synthetic_reader USING(id=1);CREATE FUNCTION r34_synthetic.identity_qty(v int) RETURNS int LANGUAGE sql IMMUTABLE AS 'SELECT v';CREATE TYPE r34_synthetic.unit AS ENUM('box','test');");
   stage='REHEARSAL_SOURCE_CATALOG';let before;try{before=await snapshot(adapter(a));}catch(error){await diagnoseCatalog(adapter(a));throw error;}
   stage='REHEARSAL_ORIGINAL_PROJECTION';const projection=await originalProjection(adapter(a));
   stage='REHEARSAL_DATABASE_ARCHIVE';const dump=await docker(['exec',a,'pg_dump','-h','/tmp','-U','supabase_admin','-d','postgres','-Fc','--create']);
@@ -119,7 +139,7 @@ export async function rehearsal(){
    await docker(['exec',b,'pg_ctl','-D','/tmp/r34-data','-l','/tmp/server.log','-w','start']);
   }finally{syntheticRoot.fill(0);}
   await sql(b,roleReplay(roles));
-  stage='REHEARSAL_ARCHIVE_RESTORE';await docker(['exec','-i',b,'pg_restore','-h','/tmp','-U','supabase_admin','-d','template1','--clean','--if-exists','--create','--use-set-session-authorization','--exit-on-error'],dump);
+  await restoreDatabase(b,dump,before.catalog.extensions,'REHEARSAL_RESTORE');
   stage='REHEARSAL_CATALOG_COMPARISON';assert.deepEqual(await snapshot(adapter(b)),before,'SYNTHETIC_FULL_RESTORE_MISMATCH');
   stage='REHEARSAL_RESTORED_VAULT_DECRYPT';assert.equal((await sql(b,"SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name='r34-runtime'" )).trim(),'R34-synthetic-updated','RESTORED_VAULT_DECRYPT');
   stage='REHEARSAL_ORIGINAL_DATA_GUARD';await sql(b,'ALTER TABLE r34_synthetic.items ADD COLUMN extra text;');assert.deepEqual(await originalData(adapter(b),projection),projection);
