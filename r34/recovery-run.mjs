@@ -106,7 +106,7 @@ export async function rehearsal(){
   await sql(a,"CREATE ROLE r34_synthetic_reader NOLOGIN;CREATE SCHEMA r34_synthetic;CREATE TABLE r34_synthetic.items(id int PRIMARY KEY,qty int);INSERT INTO r34_synthetic.items VALUES(1,1200);ALTER TABLE r34_synthetic.items ENABLE ROW LEVEL SECURITY;GRANT USAGE ON SCHEMA r34_synthetic TO r34_synthetic_reader;GRANT SELECT ON r34_synthetic.items TO r34_synthetic_reader;CREATE POLICY synthetic_read ON r34_synthetic.items FOR SELECT TO r34_synthetic_reader USING(id=1);CREATE FUNCTION r34_synthetic.identity_qty(v int) RETURNS int LANGUAGE sql IMMUTABLE AS 'SELECT v';CREATE TYPE r34_synthetic.unit AS ENUM('box','test');");
   stage='REHEARSAL_SOURCE_CATALOG';let before;try{before=await snapshot(adapter(a));}catch(error){await diagnoseCatalog(adapter(a));throw error;}
   stage='REHEARSAL_ORIGINAL_PROJECTION';const projection=await originalProjection(adapter(a));
-  const dump=await docker(['exec',a,'pg_dump','-h','/tmp','-U','r34_recovery_owner','-Fc','--create']);
+  stage='REHEARSAL_DATABASE_ARCHIVE';const dump=await docker(['exec',a,'pg_dump','-h','/tmp','-U','r34_recovery_owner','-d','postgres','-Fc','--create']);
   // A separate container with the same cluster bootstrap role proves the archive transport.
   stage='REHEARSAL_TARGET_AND_KEY_RECOVERY';const b=await isolated();
   const syntheticRoot=await docker(['exec',a,'cat','/etc/postgresql-custom/pgsodium_root.key']);
