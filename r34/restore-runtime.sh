@@ -3,7 +3,7 @@
 set -euo pipefail
 umask 077
 BOOT_STAGE=IMAGE_KEY_CONTRACT
-trap 'code=$?; set +e; printf "R34_BOOT_FAILURE_%s\n" "$BOOT_STAGE"; for log in /tmp/init.log /tmp/start.log /tmp/server.log /tmp/helper-error.log; do if test -f "$log"; then for marker in "Permission denied" "invalid secret key" "does not exist" "Read-only file system" "could not load library"; do if grep -Fq "$marker" "$log"; then case "$marker" in "Permission denied") echo R34_BOOT_PERMISSION_DENIED;; "invalid secret key") echo R34_BOOT_INVALID_KEY;; "does not exist") echo R34_BOOT_MISSING_PATH;; "Read-only file system") echo R34_BOOT_READ_ONLY_PATH;; "could not load library") echo R34_BOOT_LIBRARY_MISSING;; esac; fi; done; fi; done; exit "$code"' ERR
+trap 'code=$?; set +e; printf "R34_BOOT_FAILURE_%s\n" "$BOOT_STAGE"; for log in /tmp/init.log /tmp/start.log /tmp/server.log /tmp/helper-error.log; do if test -f "$log"; then for marker in "Permission denied" "invalid secret key" "does not exist" "Read-only file system" "could not load library"; do if grep -Fq "$marker" "$log"; then case "$marker" in "Permission denied") echo R34_BOOT_PERMISSION_DENIED;; "invalid secret key") echo R34_BOOT_INVALID_KEY;; "does not exist") echo R34_BOOT_MISSING_PATH;; "Read-only file system") echo R34_BOOT_READ_ONLY_PATH;; "could not load library") echo R34_BOOT_LIBRARY_MISSING;; esac; fi; done; grep -E "FATAL:|PANIC:|invalid value|unrecognized configuration|could not access file|could not load library" "$log" | sed -E "s/[a-fA-F0-9]{32,}/REDACTED_HEX/g" | head -c 2048 || true; fi; done; exit "$code"' ERR
 # Verify the actual pinned image helper before creating the disposable key.
 key_helper="$(pg_config --sharedir)/extension/pgsodium_getkey"
 test -x "$key_helper"
