@@ -1,0 +1,118 @@
+{
+  "status": "DRAFT_ALIGNED_STATIC_ONLY_RUNTIME_NOT_RUN",
+  "target": "knndhlczdlparjfmlxis",
+  "source_head": "0b5f1226591e6eea5408f9603e29e3e8890b15bb",
+  "accepted_step8_sha256": "fecadd2f8c3cf2bb536392421aa1cb0f9ad4db69eafbaecf94a2c1e72ec8a989",
+  "never_reapply_staging": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+  ],
+  "hosted_apply_authorized": false,
+  "steps": [
+    {
+      "order": 8,
+      "path": "SQL/P3A1_annual_catalog_NOT_APPLIED.sql",
+      "sha256": "fecadd2f8c3cf2bb536392421aa1cb0f9ad4db69eafbaecf94a2c1e72ec8a989",
+      "original_sha256": "1cfab7101634410288702e71bde670d6816ceeaea1dd06a21f510f9cc86e90bf",
+      "central_seal_body_md5": "d74e0bdd99fb4232b234d6f3ae2f0fbd",
+      "changed": true,
+      "source_path": "supabase/candidates/P3A1_annual_catalog_NOT_APPLIED.sql",
+      "change_reasons": [
+        "Accepted Director-G1 candidate, byte-for-byte"
+      ]
+    },
+    {
+      "order": 9,
+      "path": "SQL/P3B_annual_needs_audit_NOT_APPLIED.sql",
+      "sha256": "905b201364a8f70d3fc844a3dd59c3c3e3de05ba6e528c783dc69ca0557996c1",
+      "original_sha256": "a761e97aa8c2c37ed1790d645d55ec26e1945c887f6402f9179d72e6a5d41074",
+      "central_seal_body_md5": "f92b1fed051ad935d8c2893518c36521",
+      "changed": true,
+      "source_path": "supabase/candidates/P3B_annual_needs_audit_NOT_APPLIED.sql",
+      "change_reasons": [
+        "Pin the exact body computed from the immediately preceding aligned seal, not arbitrary acceptance",
+        "Carry the accepted exact managed-reader eligibility into the replacement seal",
+        "Exempt only measured inherited SELECT; retain explicit table/column/PUBLIC ACL rejection"
+      ]
+    },
+    {
+      "order": 10,
+      "path": "SQL/P3C2_annual_originals_NOT_APPLIED.sql",
+      "sha256": "160d720c12c857f93a6d1c4f5cb989d4b1acbd4b4688ce46d53c40f388889f1a",
+      "original_sha256": "17cd88fa51492c9b5722c4ae95a31275976360205f82584f46c676b65522f600",
+      "central_seal_body_md5": "710d95a7fb51386f11e554c99a0c894a",
+      "changed": true,
+      "source_path": "supabase/candidates/P3C2_annual_originals_NOT_APPLIED.sql",
+      "change_reasons": [
+        "Pin the exact body computed from the immediately preceding aligned seal, not arbitrary acceptance",
+        "Carry the accepted exact managed-reader eligibility into the replacement seal",
+        "Exempt only measured inherited SELECT; retain explicit table/column/PUBLIC ACL rejection"
+      ]
+    },
+    {
+      "order": 11,
+      "path": "SQL/R2A_authority_NOT_APPLIED.sql",
+      "sha256": "a48040a57082fd2519661c755f87c7d2f32c2e8efc351a120308e65b03c56d71",
+      "original_sha256": "a48040a57082fd2519661c755f87c7d2f32c2e8efc351a120308e65b03c56d71",
+      "central_seal_body_md5": "710d95a7fb51386f11e554c99a0c894a",
+      "changed": false,
+      "source_path": "supabase/candidates/R2A_authority_NOT_APPLIED.sql",
+      "change_reasons": []
+    },
+    {
+      "order": 12,
+      "path": "SQL/R1_read_transaction_adapters_NOT_APPLIED.sql",
+      "sha256": "5cc3b4c072acfe4cbf09a1d16a10d3f8739b5e286ebfe6aa38078affc122358d",
+      "original_sha256": "5cc3b4c072acfe4cbf09a1d16a10d3f8739b5e286ebfe6aa38078affc122358d",
+      "central_seal_body_md5": "710d95a7fb51386f11e554c99a0c894a",
+      "changed": false,
+      "source_path": "supabase/candidates/R1_read_transaction_adapters_NOT_APPLIED.sql",
+      "change_reasons": []
+    },
+    {
+      "order": 13,
+      "path": "SQL/P3C4_verified_membership_NOT_APPLIED.sql",
+      "sha256": "bdeb6bcb4e9dc8a630a06f8bbd95def30faac13bc7f2f9546447100cb1339806",
+      "original_sha256": "0e6112b48e26ce35681970a1765f333efb1bab33f1ab679ec8194c55840130a7",
+      "central_seal_body_md5": "710d95a7fb51386f11e554c99a0c894a",
+      "changed": true,
+      "source_path": "supabase/candidates/P3C4_verified_membership_NOT_APPLIED.sql",
+      "change_reasons": [
+        "Track measured managed-reader eligibility without skipping any role",
+        "Recognize exact existing read-all membership, preserve every write-all and unknown-member rejection",
+        "Separate implicit read-all schema USAGE from CREATE and explicit/inherited application schema ACL",
+        "Preserve all write/column guards, add MAINTAIN, reject explicit SELECT while recognizing only inherited global read"
+      ]
+    },
+    {
+      "order": 14,
+      "path": "SQL/R1_beneficiary_catalog_read_NOT_APPLIED.sql",
+      "sha256": "2fd7c4865afe7b02481219793a30bb8703ec0c48b79fa976aaa5ba47f0b1d572",
+      "original_sha256": "2fd7c4865afe7b02481219793a30bb8703ec0c48b79fa976aaa5ba47f0b1d572",
+      "central_seal_body_md5": "710d95a7fb51386f11e554c99a0c894a",
+      "changed": false,
+      "source_path": "supabase/candidates/R1_beneficiary_catalog_read_NOT_APPLIED.sql",
+      "change_reasons": []
+    },
+    {
+      "order": 15,
+      "path": "SQL/R2B_monthly_policy_reference_NOT_APPLIED.sql",
+      "sha256": "78e71e99310e0e4568f2e78455736e673e5d0d57a6032005311ce7614b5793fe",
+      "original_sha256": "6db1e13411f5773c0f7ff281a2bbbc76154acdde1eaa8b4eb642d73ef72f44c6",
+      "central_seal_body_md5": "710d95a7fb51386f11e554c99a0c894a",
+      "changed": true,
+      "source_path": "supabase/candidates/R2B_monthly_policy_reference_NOT_APPLIED.sql",
+      "change_reasons": [
+        "Track measured managed-reader eligibility without skipping any role",
+        "Recognize exact existing read-all membership, preserve every write-all and unknown-member rejection",
+        "Separate implicit read-all schema USAGE from CREATE and explicit/inherited application schema ACL",
+        "Preserve all write/column guards, add MAINTAIN, reject explicit SELECT while recognizing only inherited global read"
+      ]
+    }
+  ]
+}
