@@ -1,0 +1,29 @@
+# R34 recovery worker — reviewed boundary
+
+The existing preparation workflow remains unchanged. r34-recovery.yml adds review (default) and capture modes. Review has no Environment Secrets, hosted connection, R2 transfer or SQL candidates executed. It rehearses a synthetic full archive restore, RLS/ACL/schema/data comparison and restored Vault decryption on the exact official image. Capture requires the owner-reviewed environment after review passes. A synthetic review PASS is not Production backup/restore PASS.
+
+## Free-only budget
+
+R2 Standard only, private bucket medistock-production-recovery-r34 in account be10f48bad134b7947d7e25e04a1765c. No public access, new subscription or additional spend. Fresh owner-confirmed quota receipt (under one hour): at least 1 GiB R2 storage and source egress remaining, at least 100 free Class A/B operations. No provider hard zero-dollar cap is claimed. Unrelated account usage must be accounted for. One encrypted object, at most 512 MiB, one PUT and one GET, no multipart, no retries, no concurrent run cancellation/replay. Source database growth above 128 MiB or Storage above 128 MiB blocks capture. No archive or key is uploaded to GitHub Artifacts/cache/repository.
+
+## Secure owner input, only after review
+
+Environment settings: https://github.com/abdallahjawadk-code/medistock-r33-cloud-test/settings/environments
+Environment: r34-production-recovery. Enter through secure settings; never chat.
+
+- R34_DB_HOST, R34_DB_USER, R34_DB_PASSWORD, R34_DB_CA_PEM: actual Production Connect values and CA. Direct TLS or actual ap-south-1 session pooler 5432 only; verify-full, exact target/system id/server version required.
+- R34_STORAGE_READ_KEY: existing Production credential needed only for GET of existing Storage bytes; no account creation, mutation or public grants.
+- R34_BACKUP_PUBLIC_KEY_PEM / R34_BACKUP_PRIVATE_KEY_PEM: matching RSA >=3072-bit recovery pair; retain independent owner copy outside GitHub/Supabase. Worker proves real private-key recovery. No reuse of Staging DPAPI/GnuPG keys.
+- R34_EXTERNAL_RECOVERY_BUNDLE_JSON: complete owner-verified recovery export for Auth settings, SMTP/OAuth, JWT key recovery, Storage settings, Vault/encrypted-column key recovery, Edge/Realtime. Required fields target, owner_verified=true, complete=true, objects auth/storage/platform/key_recovery and coverage containing the six exact labels in recovery-run.mjs. Merely declaring complete does not independently demonstrate service recovery; missing exports keep full readiness HOLD.
+- R34_QUOTA_RECEIPT_JSON: target, owner_confirmed=true, checked_at ISO UTC, storage_class=Standard, additional_spend_authorized_usd=0, integer r2_free_bytes_remaining, supabase_egress_bytes_remaining, r2_free_class_a_remaining, r2_free_class_b_remaining.
+- R34_R2_PUT_URL / R34_R2_GET_URL: short-lived, method-bound signed URLs for the same object /medistock-production-recovery-r34/r34/<GitHub run id>/production.r34, HTTPS account endpoint only, expires <=7200s. No R2 admin key is needed in the runner. For capture, the owner can set these and a fresh quota receipt while the known run waits for environment approval. Approve only once both are ready. Creation of new R2 access credentials, if needed, is an owner security action; do not publish credentials.
+
+No capture dispatch before secure inputs and actual free usage are confirmed. No agent approval of its own environment gate. Existing GitHub master lock, no force push/deletion, exact approved SHA, first attempt, owner/triggering owner, master branch-only deployment policy and admin bypass=false remain mandatory. A controlled reviewed revision is fast-forwarded and re-frozen; no app repository modification.
+
+## Mandatory stop conditions and qualification limits
+
+Missing quota, TLS/identity/version/manifest/source drift, nondefault tablespaces, unreadable roles/passwords/tables, dump warnings, Vault secret growth, source object mutation, decryption/restore/data/schema/role/ACL/RLS mismatch or candidate failure stops immediately. No hosted migration, retry, silent omission, role stripping, alternate extension or guard reduction. All thirteen files execute only inside the owned network-none restore container. All original table projections, roles, membership, stock data and stock-writer/FEFO definitions must remain unchanged, with capability seals after each file and rollback-negative tests at the end. Intentional backfills require explicit evidence and scope review rather than rewriting an expected digest.
+
+Full database logical dump includes Auth rows, permissions, ledger and all schemas; pg_dumpall roles includes password verifiers. Database archive is a shared exported repeatable-read snapshot; external Storage is captured and read twice with metadata and byte hashes. An object deleted or changed during capture stops it. Cluster system id and server patch intentionally differ after isolated restore, not security/data catalog semantics. No hosted SQL writes occur. Only random synthetic fixtures exist in the credential-free rehearsal; none are inserted into Production.
+
+Restoring object bytes is not a live Storage service restore; preserving external recovery settings is not an independently rebuilt Auth/PostgREST/platform. Current capture output explicitly marks real Auth/PostgREST acceptance NOT_RUN, and owner-verified external settings not independently rebuilt. These limits keep final Production launch HOLD even if database recovery passes; do not label partial qualification as full release acceptance. PR295 HOLD, W05 22 NOT_RUN, monthly allocation without approved policy remains nonnumeric and nonoperative.
