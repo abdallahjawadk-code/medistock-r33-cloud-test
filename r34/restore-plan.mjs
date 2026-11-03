@@ -9,6 +9,7 @@ export function restorePlan(toc,extensions){
   if(!line||line.startsWith(';')){headers.push(line);continue;}
   const row=line.match(/^(\d+);\s+\d+\s+\d+\s+(.*)$/);assert.ok(row,'TOC_FORMAT');assert.ok(!ids.has(row[1]),'DUPLICATE_TOC_ID');ids.add(row[1]);
   if(/^DATABASE\s+-\s+postgres\s/.test(row[2])){databases++;initial.push(line);continue;}
+  if(/^DATABASE PROPERTIES\s+-\s+postgres(?:\s|$)/.test(row[2])||/^(?:ACL|COMMENT|SECURITY LABEL)\s+-\s+DATABASE postgres(?:\s|$)/.test(row[2])){initial.push(line);continue;}
   const schema=row[2].match(/^SCHEMA\s+-\s+(\S+)\s/);
   if(schema&&namespaces.has(schema[1])){assert.ok(!schemas.has(schema[1]));schemas.add(schema[1]);initial.push(line);continue;}
   const extension=row[2].match(/^EXTENSION\s+-\s+(\S+)(?:\s|$)/);

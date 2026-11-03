@@ -37,9 +37,10 @@ async function restoreDatabase(container,dump,extensions,prefix){
   if(found.length){assert.deepEqual([found[0].extname,found[0].extversion,found[0].nspname,found[0].owner],x,'PREEXISTING_EXTENSION_MUST_MATCH');continue;}
   await sql(container,'CREATE EXTENSION '+ident(x[0])+' WITH SCHEMA '+ident(x[2])+' VERSION '+literal(x[1])+';','postgres',x[3]);
  }
- // --create enables DATABASE PROPERTIES/ACL, but the DATABASE entry itself
- // was replayed already and is excluded from this complete remaining list.
- stage=prefix+'_ALL_REMAINING_OBJECTS_DATA_ACL';await docker([...base,'-d','postgres','--create','--use-list=/tmp/r34-remaining.list','/tmp/r34-archive.dump']);
+ // PostgreSQL forces DATABASE/PROPERTIES whenever --create is set, even
+ // outside a use-list. Replay those and database ACL/comments in the first
+ // phase only; the remaining phase deliberately omits --create.
+ stage=prefix+'_ALL_REMAINING_OBJECTS_DATA_ACL';await docker([...base,'-d','postgres','--use-list=/tmp/r34-remaining.list','/tmp/r34-archive.dump']);
  return {total:plan.total,initial:plan.initial_entries,extensions:plan.extension_entries,remaining:plan.remaining_entries};
 }
 async function isolated(){
