@@ -2,6 +2,7 @@
 // Hosted connection is read-only. Every SQL candidate is confined to network-none PostgreSQL.
 import fs from 'node:fs';import path from 'node:path';import assert from 'node:assert/strict';import crypto from 'node:crypto';import {spawn} from 'node:child_process';import {createRequire} from 'node:module';import {fileURLToPath} from 'node:url';
 import {authorize,endpoint,identity,quota,TARGET,SYSTEM_IDENTIFIER} from './policy.mjs';
+import {roleReplay} from './restore-roles.mjs';
 import {encrypt,decrypt,sha,transferURL} from './recovery-crypto.mjs';import {buildSources} from './verify-preparation.mjs';
 import {snapshot,originalProjection,originalData,diagnoseCatalog} from './catalog.mjs';import {isolationFlags,verifyIsolation} from '../chain/runtime-policy.mjs';
 const IMAGE='supabase/postgres:17.11.0.003@sha256:7374d196da7e301512cc5329e18040e0f7bb856287b323777cdadecccbc6c7e4';
@@ -13,7 +14,7 @@ async function docker(args,input,limit=MAX,strictWarnings=false){
  });
 }
 const name=kind=>'r34-'+kind+'-'+crypto.randomBytes(8).toString('hex');
-async function sql(container,statement,db='postgres'){assert.ok(owned.includes(container),'OWNED_ISOLATED_ONLY');return (await docker(['exec','-i',container,'psql','-X','-q','-h','/tmp','-U','r34_recovery_owner','-d',db,'-v','ON_ERROR_STOP=1','-v','VERBOSITY=sqlstate','-At'],statement)).toString();}
+async function sql(container,statement,db='postgres'){assert.ok(owned.includes(container),'OWNED_ISOLATED_ONLY');return (await docker(['exec','-i',container,'psql','-X','-q','-h','/tmp','-U','supabase_admin','-d',db,'-v','ON_ERROR_STOP=1','-v','VERBOSITY=sqlstate','-At'],statement)).toString();}
 function adapter(container){return {query:async(statement,values)=>{assert.ok(!values);return {rows:JSON.parse((await sql(container,"SELECT coalesce(json_agg(r),'[]'::json) FROM ("+statement.replace(/;\s*$/,'')+') r;')).trim())};}};}
 async function isolated(){
  const n=name('restore'),ids=(await docker(['run','--rm','--network','none','--read-only','--user','postgres','--entrypoint','/bin/sh',IMAGE,'-c','id -u;id -g'])).toString().trim().split('\n');owned.push(n);
@@ -72,7 +73,7 @@ async function recover(){
  const synthetic=Buffer.from('R34 key recovery control');assert.deepEqual(decrypt(encrypt(synthetic,e.R34_BACKUP_PUBLIC_KEY_PEM),e.R34_BACKUP_PRIVATE_KEY_PEM),synthetic);
  const files=buildSources(path.resolve('app'));stage='PINNED_RESTORE_RUNTIME';await docker(['pull',IMAGE]);const image=JSON.parse((await docker(['image','inspect',IMAGE])).toString())[0];assert.ok(image.RepoDigests.some(x=>x.endsWith('@'+IMAGE.split('@')[1])));const restored=await isolated();
  stage='PRODUCTION_READONLY_SNAPSHOT';const pg=createRequire(path.resolve('app/package.json'))('pg');source=new pg.Client({host:e.R34_DB_HOST,user:e.R34_DB_USER,password:e.R34_DB_PASSWORD,port:5432,database:'postgres',ssl:{rejectUnauthorized:true,ca:e.R34_DB_CA_PEM},connectionTimeoutMillis:12000,options:'-c default_transaction_read_only=on -c statement_timeout=120000 -c lock_timeout=1000'});await source.connect();await source.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
- const id=(await source.query("SELECT current_database() database,current_setting('server_version_num')::int server_version_num,(SELECT system_identifier::text FROM pg_control_system()) system_identifier")).rows[0];identity({...id,ssl_verify_full:source.connection.stream.authorized===true});await verifySeals(source);
+ const id=(await source.query("SELECT current_database() database,current_setting('server_version_num')::int server_version_num,(SELECT system_identifier::text FROM pg_control_system()) system_identifier")).rows[0];identity({...id,ssl_verify_full:source.connection.stream.authorized===true});assert.equal((await source.query('SELECT rolname FROM pg_roles WHERE oid=10')).rows[0].rolname,'supabase_admin','BOOTSTRAP_ROLE_DRIFT');const provider=(await source.query("SELECT current_setting('supautils.privileged_role',true) role,current_setting('supautils.privileged_extensions_superuser',true) superuser,current_setting('supautils.privileged_extensions',true) extensions")).rows[0];assert.equal(provider.role,'supabase_privileged_role');assert.equal(provider.superuser,'supabase_admin');for(const name of ['pg_stat_statements','pgcrypto','uuid-ossp','pg_trgm','supabase_vault'])assert.ok(provider.extensions.split(',').map(x=>x.trim()).includes(name),'PROVIDER_EXTENSION_CONTRACT_DRIFT');await verifySeals(source);
  assert.equal((await source.query('SELECT count(*)::int n FROM vault.secrets')).rows[0].n,0,'VAULT_CONTENT_DRIFT_REQUIRES_REAL_ROOT_KEY_REHEARSAL');
  assert.ok(Number((await source.query("SELECT pg_database_size(current_database())::text n")).rows[0].n)<=128*1024*1024,'REQUALIFY_DATABASE_GROWTH_AND_FREE_EGRESS');
  assert.equal((await source.query("SELECT count(*)::int n FROM pg_tablespace WHERE spcname NOT IN ('pg_default','pg_global')")).rows[0].n,0,'NONDEFAULT_TABLESPACE_REQUIRES_QUALIFICATION');
@@ -89,7 +90,7 @@ async function recover(){
  await source.query('COMMIT');await source.end();source=null;await docker(['rm','-f',client]);owned.splice(owned.indexOf(client),1);
  const plain=Buffer.from(JSON.stringify({format:'R34_FULL_LOGICAL_DATABASE_STORAGE_EXTERNAL_V1',target:TARGET,identity:id,captured_at:new Date().toISOString(),before,stockBefore,external_recovery:ext,storage:stored,roles:roles.toString('base64'),dump:dump.toString('base64')}));assert.ok(plain.length<=MAX,'ARCHIVE_LIMIT');
  stage='ENCRYPTED_INDEPENDENT_BACKUP';const encrypted=encrypt(plain,e.R34_BACKUP_PUBLIC_KEY_PEM);await transfer(e.R34_R2_PUT_URL,'PUT',encrypted);const downloaded=await transfer(e.R34_R2_GET_URL,'GET');assert.equal(sha(downloaded),sha(encrypted));const recovered=decrypt(downloaded,e.R34_BACKUP_PRIVATE_KEY_PEM);assert.equal(sha(recovered),sha(plain));const archive=JSON.parse(recovered);assert.equal(archive.identity.system_identifier,SYSTEM_IDENTIFIER);
- stage='EXACT_DATABASE_RESTORE';await sql(restored,Buffer.from(archive.roles,'base64'));await docker(['exec','-i',restored,'pg_restore','-h','/tmp','-U','r34_recovery_owner','-d','template1','--clean','--if-exists','--create','--exit-on-error'],Buffer.from(archive.dump,'base64'));
+ stage='EXACT_DATABASE_RESTORE';await sql(restored,roleReplay(Buffer.from(archive.roles,'base64')));await docker(['exec','-i',restored,'pg_restore','-h','/tmp','-U','supabase_admin','-d','template1','--clean','--if-exists','--create','--use-set-session-authorization','--exit-on-error'],Buffer.from(archive.dump,'base64'));
  const c=adapter(restored);assert.notEqual((await c.query('SELECT system_identifier::text id FROM pg_control_system()')).rows[0].id,SYSTEM_IDENTIFIER);assert.deepEqual(await snapshot(c),archive.before,'RESTORE_DATA_SCHEMA_ROLES_ACL_RLS_MISMATCH');const projection=await originalProjection(c);
  for(const object of archive.storage)assert.equal(sha(Buffer.from(object.bytes,'base64')),object.sha256);assert.deepEqual(await stock(c),archive.stockBefore);stage='RESTORED_DATABASE_CHAIN';const applied=[];
  for(const f of files){assert.equal(sha(f.bytes),f.sha256);await sql(restored,f.bytes);await verifySeals(c);assert.deepEqual(await stock(c),stockBefore,'STOCK_OR_FEFO_DRIFT');const now=await snapshot(c);assert.deepEqual(now.catalog.roles,before.catalog.roles,'ROLE_TRAITS_DRIFT');assert.deepEqual(now.catalog.memberships,before.catalog.memberships,'ROLE_GRAPH_DRIFT');assert.deepEqual(await originalData(c,projection),projection,'ORIGINAL_TABLE_DATA_DRIFT');applied.push({order:f.order,sha256:f.sha256,status:'PASS'});}
@@ -103,11 +104,12 @@ export async function rehearsal(){
   assert.equal(process.platform,'linux');assert.equal(e.RUNNER_ENVIRONMENT,'github-hosted');authorize(e);
   for(const k of Object.keys(e))assert.ok(!/R34_(DB_|STORAGE_|BACKUP_|R2_|EXTERNAL_)/.test(k),'REHEARSAL_HAS_NO_PRODUCTION_INPUT');
   stage='REHEARSAL_IMAGE_AND_SOURCE_VAULT';await docker(['pull',IMAGE]);const a=await isolated();
-  await sql(a,"CREATE ROLE r34_synthetic_reader NOLOGIN;CREATE SCHEMA r34_synthetic;CREATE TABLE r34_synthetic.items(id int PRIMARY KEY,qty int);INSERT INTO r34_synthetic.items VALUES(1,1200);ALTER TABLE r34_synthetic.items ENABLE ROW LEVEL SECURITY;GRANT USAGE ON SCHEMA r34_synthetic TO r34_synthetic_reader;GRANT SELECT ON r34_synthetic.items TO r34_synthetic_reader;CREATE POLICY synthetic_read ON r34_synthetic.items FOR SELECT TO r34_synthetic_reader USING(id=1);CREATE FUNCTION r34_synthetic.identity_qty(v int) RETURNS int LANGUAGE sql IMMUTABLE AS 'SELECT v';CREATE TYPE r34_synthetic.unit AS ENUM('box','test');");
+  await sql(a,"CREATE ROLE postgres NOSUPERUSER LOGIN CREATEDB CREATEROLE BYPASSRLS;CREATE ROLE supabase_privileged_role NOLOGIN;GRANT supabase_privileged_role TO postgres;CREATE SCHEMA extensions AUTHORIZATION postgres;ALTER DATABASE postgres OWNER TO postgres;SET SESSION AUTHORIZATION postgres;CREATE EXTENSION pg_stat_statements SCHEMA extensions;CREATE EXTENSION pgcrypto SCHEMA extensions;CREATE EXTENSION \"uuid-ossp\" SCHEMA extensions;RESET SESSION AUTHORIZATION;CREATE EXTENSION pg_trgm SCHEMA extensions;CREATE ROLE r34_synthetic_reader NOLOGIN;CREATE SCHEMA r34_synthetic;CREATE TABLE r34_synthetic.items(id int PRIMARY KEY,qty int);INSERT INTO r34_synthetic.items VALUES(1,1200);ALTER TABLE r34_synthetic.items ENABLE ROW LEVEL SECURITY;GRANT USAGE ON SCHEMA r34_synthetic TO r34_synthetic_reader;GRANT SELECT ON r34_synthetic.items TO r34_synthetic_reader;CREATE POLICY synthetic_read ON r34_synthetic.items FOR SELECT TO r34_synthetic_reader USING(id=1);CREATE FUNCTION r34_synthetic.identity_qty(v int) RETURNS int LANGUAGE sql IMMUTABLE AS 'SELECT v';CREATE TYPE r34_synthetic.unit AS ENUM('box','test');");
   stage='REHEARSAL_SOURCE_CATALOG';let before;try{before=await snapshot(adapter(a));}catch(error){await diagnoseCatalog(adapter(a));throw error;}
   stage='REHEARSAL_ORIGINAL_PROJECTION';const projection=await originalProjection(adapter(a));
-  stage='REHEARSAL_DATABASE_ARCHIVE';const dump=await docker(['exec',a,'pg_dump','-h','/tmp','-U','r34_recovery_owner','-d','postgres','-Fc','--create']);
-  // A separate container with the same cluster bootstrap role proves the archive transport.
+  stage='REHEARSAL_DATABASE_ARCHIVE';const dump=await docker(['exec',a,'pg_dump','-h','/tmp','-U','supabase_admin','-d','postgres','-Fc','--create']);
+  const roles=await docker(['exec',a,'pg_dumpall','-h','/tmp','-U','supabase_admin','-d','postgres','--roles-only']);
+  // A separate provider-aligned bootstrap restores the original role dump.
   stage='REHEARSAL_TARGET_AND_KEY_RECOVERY';const b=await isolated();
   const syntheticRoot=await docker(['exec',a,'cat','/etc/postgresql-custom/pgsodium_root.key']);
   try{
@@ -115,8 +117,8 @@ export async function rehearsal(){
    await docker(['exec','-i',b,'sh','-c','umask 077; cat > /etc/postgresql-custom/pgsodium_root.key'],syntheticRoot);
    await docker(['exec',b,'pg_ctl','-D','/tmp/r34-data','-l','/tmp/server.log','-w','start']);
   }finally{syntheticRoot.fill(0);}
-  await sql(b,'CREATE ROLE r34_synthetic_reader NOLOGIN;');
-  stage='REHEARSAL_ARCHIVE_RESTORE';await docker(['exec','-i',b,'pg_restore','-h','/tmp','-U','r34_recovery_owner','-d','template1','--clean','--if-exists','--create','--exit-on-error'],dump);
+  await sql(b,roleReplay(roles));
+  stage='REHEARSAL_ARCHIVE_RESTORE';await docker(['exec','-i',b,'pg_restore','-h','/tmp','-U','supabase_admin','-d','template1','--clean','--if-exists','--create','--use-set-session-authorization','--exit-on-error'],dump);
   stage='REHEARSAL_CATALOG_COMPARISON';assert.deepEqual(await snapshot(adapter(b)),before,'SYNTHETIC_FULL_RESTORE_MISMATCH');
   stage='REHEARSAL_RESTORED_VAULT_DECRYPT';assert.equal((await sql(b,"SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name='r34-runtime'" )).trim(),'R34-synthetic-updated','RESTORED_VAULT_DECRYPT');
   stage='REHEARSAL_ORIGINAL_DATA_GUARD';await sql(b,'ALTER TABLE r34_synthetic.items ADD COLUMN extra text;');assert.deepEqual(await originalData(adapter(b),projection),projection);

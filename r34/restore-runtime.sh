@@ -23,11 +23,16 @@ unset provided_key
 helper_sha="$(sha256sum "$key_real")"
 printf '%s\n%s\n%s\n' "$key_file" "$key_real" "${helper_sha%% *}" >/tmp/R34_IMAGE_KEY_CONTRACT
 BOOT_STAGE=INITDB
-initdb -D /tmp/r34-data -U r34_recovery_owner --auth=trust --encoding=UTF8 --no-locale >/tmp/init.log 2>&1
+initdb -D /tmp/r34-data -U supabase_admin --auth=trust --encoding=UTF8 --no-locale >/tmp/init.log 2>&1
 cat >>/tmp/r34-data/postgresql.conf <<'CONF'
 listen_addresses=''
 unix_socket_directories='/tmp'
 shared_preload_libraries='supabase_vault,pg_stat_statements'
+session_preload_libraries='supautils'
+supautils.superuser='supabase_admin'
+supautils.privileged_role='supabase_privileged_role'
+supautils.privileged_extensions_superuser='supabase_admin'
+supautils.privileged_extensions='pg_stat_statements,pgcrypto,uuid-ossp,pg_trgm,supabase_vault'
 max_locks_per_transaction=512
 CONF
 printf "vault.getkey_script='%s'\n" "$key_helper" >>/tmp/r34-data/postgresql.conf

@@ -41,7 +41,7 @@ jobs:
           path: app
           persist-credentials: false
       - name: Verify new trust, TLS, quota and identity guards
-        run: node --test r34/policy.test.mjs r34/recovery-crypto.test.mjs
+        run: node --test r34/policy.test.mjs r34/recovery-crypto.test.mjs r34/restore-roles.test.mjs
       - name: Reconstruct exact thirteen source files without executing SQL
         run: node r34/verify-preparation.mjs
       - name: Rehearse exact archive restore and Vault with synthetic data only
