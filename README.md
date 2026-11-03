@@ -12,5 +12,12 @@ The disposable PostgreSQL container has no network, published ports, or persiste
 volume. Its root is read-only; data and a newly generated synthetic test root key
 exist only in tmpfs and disappear when the container is removed.
 
+The official key helper is inspected inside the pinned image. Its actual key-file
+contract is `/etc/postgresql-custom/pgsodium_root.key`; an owner-only, noexec,
+1 MiB tmpfs is mounted at `/etc/postgresql-custom` with the image's postgres
+UID/GID discovered at runtime. The helper output is compared with the synthetic
+key without printing either value. Only the helper code hash and path are public
+proof metadata. `runtime-policy.test.mjs` tests the new isolation/key-path guards.
+
 No existing Vault secret is decrypted, and no Staging backup/restore is implied
 by PASS_RUNTIME_PROBE. Further phases require their separate setup authorization.

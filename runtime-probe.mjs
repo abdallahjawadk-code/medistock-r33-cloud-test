@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
+import {isolationFlags,verifyIsolation,parseKeyContract} from './runtime-policy.mjs';
 const IMAGE='supabase/postgres:17.11.0.003@sha256:7374d196da7e301512cc5329e18040e0f7bb856287b323777cdadecccbc6c7e4';
 const e=process.env;
 const root=path.dirname(fileURLToPath(import.meta.url));
@@ -36,8 +37,11 @@ try{
  const image=JSON.parse((await docker(['image','inspect',IMAGE])).toString())[0];
  assert.equal(image.Os,'linux');assert.equal(image.Architecture,'amd64');
  assert.ok(image.RepoDigests.some(x=>x.endsWith('@'+IMAGE.split('@')[1])));
+ stage='IMAGE_POSTGRES_IDENTITY';
+ const ids=(await docker(['run','--rm','--network','none','--read-only','--user','postgres','--entrypoint','/bin/sh',IMAGE,'-c','id -u; id -g'])).toString().trim().split('\n');
+ assert.equal(ids.length,2);const [uid,gid]=ids;const flags=isolationFlags(uid,gid);
  stage='ISOLATED_POSTGRES_START';
- await docker(['run','-d','--name',container,'--label','medistock.scope=r33-runtime-phase1','--network','none','--read-only','--tmpfs','/tmp:rw,nosuid,size=512m','--user','postgres','--entrypoint','/bin/bash',IMAGE,'-c',fs.readFileSync(path.join(root,'cloud-runtime.sh'),'utf8')]);created=true;
+ await docker(['run','-d','--name',container,'--label','medistock.scope=r33-runtime-phase1',...flags,'--user','postgres','--entrypoint','/bin/bash',IMAGE,'-c',fs.readFileSync(path.join(root,'cloud-runtime.sh'),'utf8')]);created=true;
  // Bounded readiness polling only, never retries SQL or a failed probe.
  let ready=false;
  for(let i=0;i<60;i++){
@@ -47,9 +51,8 @@ try{
  assert.ok(ready);
  stage='ISOLATION_PROPERTIES';
  const inspect=JSON.parse((await docker(['inspect',container])).toString())[0];
- assert.equal(inspect.HostConfig.NetworkMode,'none');assert.equal(inspect.HostConfig.ReadonlyRootfs,true);
- assert.equal(inspect.Config.Image,IMAGE);assert.equal(Object.keys(inspect.HostConfig.PortBindings||{}).length,0);
- assert.ok(inspect.Mounts.every(m=>m.Type==='tmpfs'));
+ verifyIsolation(inspect,uid,gid);assert.equal(inspect.Config.Image,IMAGE);
+ const keyContract=parseKeyContract((await docker(['exec',container,'cat','/tmp/R33_IMAGE_KEY_CONTRACT'])).toString());
  stage='VAULT_CREATE_AND_CRYPTO_ROUNDTRIP';
  const sql=`CREATE SCHEMA vault;
 CREATE EXTENSION supabase_vault VERSION '0.3.1' SCHEMA vault;
@@ -66,7 +69,7 @@ SELECT json_build_object('postgres_version',current_setting('server_version'),'v
  const proof=JSON.parse(raw.trim().split('\n').at(-1));
  assert.equal(proof.postgres_version,'17.11');assert.equal(proof.vault_version,'0.3.1');
  assert.notEqual(proof.system_identifier,'7692131729119822239');
- console.log(JSON.stringify({status:'PASS_RUNTIME_PROBE',commit:e.GITHUB_SHA,image:IMAGE,image_id:image.Id,network:'none',read_only_root:true,published_ports:0,persistent_volumes:0,hosted_connections:0,...proof}));
+ console.log(JSON.stringify({status:'PASS_RUNTIME_PROBE',commit:e.GITHUB_SHA,image:IMAGE,image_id:image.Id,network:'none',read_only_root:true,published_ports:0,persistent_volumes:0,hosted_connections:0,postgres_uid:uid,postgres_gid:gid,key_tmpfs_max_bytes:1048576,...keyContract,...proof}));
  stage='GRACEFUL_STOP';await docker(['exec',container,'touch','/tmp/R33_STOP']);await docker(['wait',container]);
  await docker(['rm',container]);created=false;
  console.log('PASS_DISPOSABLE_CONTAINER_REMOVED');
