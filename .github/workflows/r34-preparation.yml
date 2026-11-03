@@ -1,0 +1,49 @@
+name: R34 protected production recovery preparation
+on:
+  workflow_dispatch:
+    inputs:
+      approved_sha:
+        description: Exact reviewed automation commit
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: r34-production-recovery
+  cancel-in-progress: false
+jobs:
+  source-review:
+    if: github.repository == 'abdallahjawadk-code/medistock-r33-cloud-test' && github.actor == 'abdallahjawadk-code' && github.triggering_actor == 'abdallahjawadk-code' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master' && github.sha == vars.R34_APPROVED_SHA && inputs.approved_sha == github.sha && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      R34_APPROVED_SHA: ${{ vars.R34_APPROVED_SHA }}
+      R34_INPUT_SHA: ${{ inputs.approved_sha }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          repository: abdallahjawadk-code/medistock-phoenix
+          ref: 0b5f1226591e6eea5408f9603e29e3e8890b15bb
+          path: app
+          persist-credentials: false
+      - name: Verify new trust, TLS, quota and identity guards
+        run: node --test r34/policy.test.mjs
+      - name: Reconstruct exact thirteen source files without executing SQL
+        run: node r34/verify-preparation.mjs
+  owner-environment-gate:
+    needs: source-review
+    if: needs.source-review.result == 'success'
+    environment: r34-production-recovery
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Record preparation boundary after owner review
+        run: echo 'R34_ENVIRONMENT_REVIEWED_BACKUP_AND_RESTORE_NOT_RUN'

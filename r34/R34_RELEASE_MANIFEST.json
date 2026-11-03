@@ -1,0 +1,239 @@
+{
+  "result": "HOLD_PRODUCTION_RELEASE",
+  "date_baghdad": "2026-11-03",
+  "target": "eyrzxgfkvqybjdgyphap",
+  "database": "postgres",
+  "system_identifier": "7642734024280108049",
+  "observed_postgresql": "17.6",
+  "source_head": "0b5f1226591e6eea5408f9603e29e3e8890b15bb",
+  "apply_authorized": false,
+  "full_backup_complete": false,
+  "isolated_production_restore_passed": false,
+  "production_snapshot_chain_runtime": "NOT_RUN",
+  "candidate_count": 13,
+  "excluded": [
+    {
+      "file": "R33_r1_legacy_to_m230_NOT_APPLIED.sql",
+      "reason": "Staging-only target guard and incompatible predecessor state; Production already contains canonical M224/M228/M229/M230 and staffing helper"
+    },
+    {
+      "file": "231_phoenix_unit_test_vocabulary.sql",
+      "reason": "Already applied in Production; actual validated constraints already include test"
+    },
+    {
+      "file": "M001-M230 including M222",
+      "reason": "Already represented in Production history; no historical replay"
+    },
+    {
+      "file": "PR295 SQL",
+      "reason": "HOLD; never included"
+    }
+  ],
+  "steps": [
+    {
+      "order": 1,
+      "former_r33_order": 3,
+      "path": "SQL_REVIEW_ONLY/01_232_phoenix_central_needs_same_actor_approval.sql",
+      "sha256": "8de22ae2dd3fffc9afe6b93621afa05d1d08dd83f0e64965d0ecdd917c18c599",
+      "source": "work/medistock-r33/supabase/migrations/232_phoenix_central_needs_same_actor_approval.sql",
+      "reason": "M232 owner-approved same-actor manual authority amendment; exact three predecessor bodies match Production",
+      "internal_guards_preserved": true,
+      "requires_external_production_identity_and_baseline_guard": true,
+      "guard_md5_literals": [
+        "1b179e1da2075816a072c1f6a9935167",
+        "401791829f66ce810a1cb77cedf5aa5a",
+        "75f420c1cf7b80d2bffdb07609ee7b76"
+      ]
+    },
+    {
+      "order": 2,
+      "former_r33_order": 4,
+      "path": "SQL_REVIEW_ONLY/02_233_phoenix_central_needs_distinct_national_code.sql",
+      "sha256": "44402f3900fb24f0b8b843a7bab711d1651ebb687bb853eea6c684b6a98dd61d",
+      "source": "work/medistock-r33/supabase/migrations/233_phoenix_central_needs_distinct_national_code.sql",
+      "reason": "M233 distinct textual national code and feature contract; no barcode backfill",
+      "internal_guards_preserved": true,
+      "requires_external_production_identity_and_baseline_guard": true,
+      "guard_md5_literals": [
+        "155adef7f060e593322652f6044f4953",
+        "3bf02b259f53f1a1b59b0c77d97852c5",
+        "6ac027f121badae464fb673d8861fadc",
+        "7a23c7a319ef278b622cb71b7f036793",
+        "d4e5b98e00120b38c92665c9f3f3fbcb"
+      ]
+    },
+    {
+      "order": 3,
+      "former_r33_order": 5,
+      "path": "SQL_REVIEW_ONLY/03_234_phoenix_central_needs_annual_dossiers.sql",
+      "sha256": "9258c95e03c75b06692cad7411244ac01984bccd01fa3fac9c9d03c6251c50dd",
+      "source": "work/medistock-r33/supabase/migrations/234_phoenix_central_needs_annual_dossiers.sql",
+      "reason": "M234 annual dossiers and preserved workflow authority",
+      "internal_guards_preserved": true,
+      "requires_external_production_identity_and_baseline_guard": true,
+      "guard_md5_literals": [
+        "09c71b200c071f90f26a6fbe0c44cdde",
+        "261625c9f1e49cda9b36153c2d6849f1",
+        "388a4684322c0353a3a4e7007fdb4da0",
+        "60c575e0b42fa879031c65c92900896b",
+        "612586999135d85b0475f371db2937c8",
+        "676cbeb1ebcf42a55ec08f5d40fb77d2",
+        "788e8fe6a1bac05c0a880394d7cda9fc",
+        "7db9074dffbe7230a669922b594708c7",
+        "9a5432d109dec8bbfeb81df06c4cdf6c",
+        "9adacbbf9be01aa1b012c29307614b7a",
+        "a8c6414b17231d8133a0c08a541aa997",
+        "ac31d9daaecf63ce7bd896c76a52ce9d",
+        "bf3f799cf2e5849a497cd40d6242e17b",
+        "c350ffea9003dcfcb712642c08adb02b",
+        "ce3b1e637f3b3bc41fd1281868ce520c",
+        "d9dc08f1931ad820aecaf2940820965e"
+      ]
+    },
+    {
+      "order": 4,
+      "former_r33_order": 6,
+      "path": "SQL_REVIEW_ONLY/04_235_phoenix_central_needs_dossier_workbook_intake.sql",
+      "sha256": "5543cf1d613aeac26c90cc97c21b1128723c1e7bde903504f60cbd5e36cac4fd",
+      "source": "work/medistock-r33/supabase/migrations/235_phoenix_central_needs_dossier_workbook_intake.sql",
+      "reason": "M235 dossier workbook contract required by P1/P3A1 preconditions; not an activation of Excel quantity import",
+      "internal_guards_preserved": true,
+      "requires_external_production_identity_and_baseline_guard": true,
+      "guard_md5_literals": [
+        "b7478934ded2998f78a12c31c4de051a",
+        "fe56867edf8c15e7c47778b159e9dc42"
+      ]
+    },
+    {
+      "order": 5,
+      "former_r33_order": 7,
+      "path": "SQL_REVIEW_ONLY/05_P1_dossier_workbook_reservation_NOT_APPLIED.sql",
+      "sha256": "d0f914e47b559fa027e9372beb17dc5cc4fe46affee29b480149b5a3be9440ff",
+      "source": "work/medistock-r33/supabase/candidates/P1_dossier_workbook_reservation_NOT_APPLIED.sql",
+      "reason": "P1 workbook/manual reservation guard required by accepted P3A1",
+      "internal_guards_preserved": true,
+      "requires_external_production_identity_and_baseline_guard": true,
+      "guard_md5_literals": [
+        "147e76ea9d5b4b75c6a4ff2fb7c22ab8",
+        "23021b47830f2732d89f6ad0793f13f7",
+        "4af7f46388a2f90524e420d21b18ce47",
+        "5b1cf7e166971c032ec8e1e1a4e33416",
+        "9ca01f5e013e6074c9521873c82de52b",
+        "ea1edac9743d1a092b5a7c228831af6a",
+        "ebc8d650870083733ff984a6ebadfa73"
+      ]
+    },
+    {
+      "order": 6,
+      "former_r33_order": 8,
+      "path": "SQL_REVIEW_ONLY/06_P3A1_annual_catalog_NOT_APPLIED.sql",
+      "sha256": "fecadd2f8c3cf2bb536392421aa1cb0f9ad4db69eafbaecf94a2c1e72ec8a989",
+      "source": "work/r33-chain-8-15/SQL/P3A1_annual_catalog_NOT_APPLIED.sql",
+      "reason": "Unmodified accepted R33 chain source; Production restore qualification still required",
+      "internal_guards_preserved": true,
+      "requires_external_production_identity_and_baseline_guard": true,
+      "guard_md5_literals": [
+        "a0bd1f740bcc96adfb074073a9b2f587"
+      ]
+    },
+    {
+      "order": 7,
+      "former_r33_order": 9,
+      "path": "SQL_REVIEW_ONLY/07_P3B_annual_needs_audit_NOT_APPLIED.sql",
+      "sha256": "905b201364a8f70d3fc844a3dd59c3c3e3de05ba6e528c783dc69ca0557996c1",
+      "source": "work/r33-chain-8-15/SQL/P3B_annual_needs_audit_NOT_APPLIED.sql",
+      "reason": "Unmodified accepted R33 chain source; Production restore qualification still required",
+      "internal_guards_preserved": true,
+      "requires_external_production_identity_and_baseline_guard": true,
+      "guard_md5_literals": [
+        "1e2e98cdcb48d36b68e1c8997f80f2f6",
+        "3e1f78af5b353dd327073688b53535b7",
+        "565a5437c6f2d67ba8a956f850d4318d",
+        "5bb5dad892e8316e7c3393d9d379d346",
+        "5e47f1dc81aafa41ee1499f7adf9c33f",
+        "a31aedea1bbec8fafc4ae85d43a3fd44",
+        "d74e0bdd99fb4232b234d6f3ae2f0fbd",
+        "d7d03c4118d0640fc48c8de9f57fc99d",
+        "e0230f8aed66106b92af4d4fde1e9b80",
+        "ede9a7735d7f30bf0a71644297d75d7f",
+        "f371e6824c114e983df0a9b2c7736456"
+      ]
+    },
+    {
+      "order": 8,
+      "former_r33_order": 10,
+      "path": "SQL_REVIEW_ONLY/08_P3C2_annual_originals_NOT_APPLIED.sql",
+      "sha256": "160d720c12c857f93a6d1c4f5cb989d4b1acbd4b4688ce46d53c40f388889f1a",
+      "source": "work/r33-chain-8-15/SQL/P3C2_annual_originals_NOT_APPLIED.sql",
+      "reason": "Unmodified accepted R33 chain source; Production restore qualification still required",
+      "internal_guards_preserved": true,
+      "requires_external_production_identity_and_baseline_guard": true,
+      "guard_md5_literals": [
+        "1f976f77a9ed496c443ee95f2f05a159",
+        "25a4794abce121a1cbc7a6d06416b87f",
+        "5e47f1dc81aafa41ee1499f7adf9c33f",
+        "6b96b427b27750cdec48077927770df5",
+        "81d02dff872b4af5c9097ea4c1113cfc",
+        "83f85fb1671cc691ad99b652df1737a8",
+        "a2fc21fb24ccc845608d882a2f8fb704",
+        "a31aedea1bbec8fafc4ae85d43a3fd44",
+        "f92b1fed051ad935d8c2893518c36521"
+      ]
+    },
+    {
+      "order": 9,
+      "former_r33_order": 11,
+      "path": "SQL_REVIEW_ONLY/09_R2A_authority_NOT_APPLIED.sql",
+      "sha256": "a48040a57082fd2519661c755f87c7d2f32c2e8efc351a120308e65b03c56d71",
+      "source": "work/r33-chain-8-15/SQL/R2A_authority_NOT_APPLIED.sql",
+      "reason": "Unmodified accepted R33 chain source; Production restore qualification still required",
+      "internal_guards_preserved": true,
+      "requires_external_production_identity_and_baseline_guard": true,
+      "guard_md5_literals": []
+    },
+    {
+      "order": 10,
+      "former_r33_order": 12,
+      "path": "SQL_REVIEW_ONLY/10_R1_read_transaction_adapters_NOT_APPLIED.sql",
+      "sha256": "5cc3b4c072acfe4cbf09a1d16a10d3f8739b5e286ebfe6aa38078affc122358d",
+      "source": "work/r33-chain-8-15/SQL/R1_read_transaction_adapters_NOT_APPLIED.sql",
+      "reason": "Unmodified accepted R33 chain source; Production restore qualification still required",
+      "internal_guards_preserved": true,
+      "requires_external_production_identity_and_baseline_guard": true,
+      "guard_md5_literals": []
+    },
+    {
+      "order": 11,
+      "former_r33_order": 13,
+      "path": "SQL_REVIEW_ONLY/11_P3C4_verified_membership_NOT_APPLIED.sql",
+      "sha256": "1f28f87665060abe6d8903d1634a28555a08b192e6ca19898e9424d1916f50fe",
+      "source": "work/r33-chain-8-15/SQL/P3C4_verified_membership_NOT_APPLIED.sql",
+      "reason": "Unmodified accepted R33 chain source; Production restore qualification still required",
+      "internal_guards_preserved": true,
+      "requires_external_production_identity_and_baseline_guard": true,
+      "guard_md5_literals": []
+    },
+    {
+      "order": 12,
+      "former_r33_order": 14,
+      "path": "SQL_REVIEW_ONLY/12_R1_beneficiary_catalog_read_NOT_APPLIED.sql",
+      "sha256": "2fd7c4865afe7b02481219793a30bb8703ec0c48b79fa976aaa5ba47f0b1d572",
+      "source": "work/r33-chain-8-15/SQL/R1_beneficiary_catalog_read_NOT_APPLIED.sql",
+      "reason": "Unmodified accepted R33 chain source; Production restore qualification still required",
+      "internal_guards_preserved": true,
+      "requires_external_production_identity_and_baseline_guard": true,
+      "guard_md5_literals": []
+    },
+    {
+      "order": 13,
+      "former_r33_order": 15,
+      "path": "SQL_REVIEW_ONLY/13_R2B_monthly_policy_reference_NOT_APPLIED.sql",
+      "sha256": "9d0fd09624107038e190639af035f2d3489415a842f2420a7c2186b81ec1295e",
+      "source": "work/r33-chain-8-15/SQL/R2B_monthly_policy_reference_NOT_APPLIED.sql",
+      "reason": "Unmodified accepted R33 chain source; Production restore qualification still required",
+      "internal_guards_preserved": true,
+      "requires_external_production_identity_and_baseline_guard": true,
+      "guard_md5_literals": []
+    }
+  ]
+}
