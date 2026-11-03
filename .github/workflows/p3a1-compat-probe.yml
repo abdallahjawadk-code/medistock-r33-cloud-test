@@ -1,0 +1,61 @@
+{
+  "name": "R33 P3A1 compatibility seal proof",
+  "on": {
+    "workflow_dispatch": {
+      "inputs": {
+        "approved_tools_sha": {
+          "type": "string",
+          "required": true,
+          "description": "Reviewed compatibility-probe commit SHA"
+        }
+      }
+    }
+  },
+  "permissions": {
+    "contents": "read"
+  },
+  "concurrency": {
+    "group": "r33-p3a1-compat-proof",
+    "cancel-in-progress": false
+  },
+  "jobs": {
+    "proof": {
+      "if": "github.repository == 'abdallahjawadk-code/medistock-r33-cloud-test' && github.actor == 'abdallahjawadk-code' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master'",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 20,
+      "env": {
+        "R33_APPROVED_TOOLS_SHA": "${{ inputs.approved_tools_sha }}"
+      },
+      "steps": [
+        {
+          "uses": "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0",
+          "with": {
+            "ref": "${{ github.sha }}",
+            "persist-credentials": false
+          }
+        },
+        {
+          "uses": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
+          "with": {
+            "node-version": 22,
+            "package-manager-cache": false
+          }
+        },
+        {
+          "name": "Read frozen public source only",
+          "uses": "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0",
+          "with": {
+            "repository": "abdallahjawadk-code/medistock-phoenix",
+            "ref": "0b5f1226591e6eea5408f9603e29e3e8890b15bb",
+            "path": "app",
+            "persist-credentials": false
+          }
+        },
+        {
+          "name": "Targeted PostgreSQL 17 isolated seal reproduction and negative matrix",
+          "run": "node p3a1-compat-probe.mjs"
+        }
+      ]
+    }
+  }
+}
