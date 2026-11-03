@@ -45,9 +45,10 @@ try{
   catch{const state=JSON.parse((await docker(['inspect','--format','{{json .State}}',container])).toString());if(!state.Running)throw Error('STARTUP_STOPPED');await new Promise(r=>setTimeout(r,500));}
  }
  assert.ok(ready);
+ stage='ISOLATION_PROPERTIES';
  const inspect=JSON.parse((await docker(['inspect',container])).toString())[0];
  assert.equal(inspect.HostConfig.NetworkMode,'none');assert.equal(inspect.HostConfig.ReadonlyRootfs,true);
- assert.equal(inspect.Config.Image,IMAGE);assert.deepEqual(inspect.HostConfig.PortBindings,{});
+ assert.equal(inspect.Config.Image,IMAGE);assert.equal(Object.keys(inspect.HostConfig.PortBindings||{}).length,0);
  assert.ok(inspect.Mounts.every(m=>m.Type==='tmpfs'));
  stage='VAULT_CREATE_AND_CRYPTO_ROUNDTRIP';
  const sql=`CREATE SCHEMA vault;
@@ -69,7 +70,10 @@ SELECT json_build_object('postgres_version',current_setting('server_version'),'v
  stage='GRACEFUL_STOP';await docker(['exec',container,'touch','/tmp/R33_STOP']);await docker(['wait',container]);
  await docker(['rm',container]);created=false;
  console.log('PASS_DISPOSABLE_CONTAINER_REMOVED');
-}catch{console.error('HOLD_RUNTIME_PROBE_'+stage);process.exitCode=2;}
+}catch{
+ console.error('HOLD_RUNTIME_PROBE_'+stage);process.exitCode=2;
+ if(created){try{const log=(await docker(['logs',container])).toString();for(const line of log.split('\n'))if(/^R33_BOOT_[A-Z_]+$/.test(line))console.error(line);}catch{}}
+}
 finally{
  if(created){try{await docker(['rm','-f',container]);console.log('DISPOSABLE_CLEANUP_COMPLETED');}catch{console.error('HOLD_DISPOSABLE_CLEANUP');process.exitCode=2;}}
 }

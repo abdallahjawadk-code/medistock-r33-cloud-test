@@ -1,5 +1,5 @@
 {
-  "name": "R33 runtime_probe — PostgreSQL and Vault",
+  "name": "R33 runtime_probe \u00e2\u20ac\u201d PostgreSQL and Vault",
   "on": {
     "workflow_dispatch": {
       "inputs": {
@@ -39,7 +39,8 @@
           "name": "Set up Node without cache",
           "uses": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
           "with": {
-            "node-version": 22
+            "node-version": 22,
+            "package-manager-cache": false
           }
         },
         {
