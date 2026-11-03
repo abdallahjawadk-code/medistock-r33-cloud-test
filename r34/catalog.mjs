@@ -20,11 +20,19 @@ export const catalogSQL=`SELECT jsonb_build_object(
  'default_acl',(SELECT jsonb_agg(jsonb_build_array(pg_get_userbyid(d.defaclrole),n.nspname,d.defaclobjtype,d.defaclacl::text) ORDER BY pg_get_userbyid(d.defaclrole),n.nspname,d.defaclobjtype) FROM pg_default_acl d LEFT JOIN pg_namespace n ON n.oid=d.defaclnamespace)
  ) AS catalog`;
 const quote=s=>'"'+s.replaceAll('"','""')+'"';
+// Diagnose only against the credential-free synthetic database; never print SQL/data.
+export async function diagnoseCatalog(c){
+ for(const line of catalogSQL.split('\n')){
+  const key=line.match(/^\s*'([a-z_]+)',/);if(!key)continue;
+  try{await c.query('SELECT jsonb_build_object('+line.trim().replace(/,$/,'')+') AS catalog');}
+  catch(error){console.error('R34_SYNTHETIC_CATALOG_COMPONENT_'+key[1].toUpperCase());throw error;}
+ }
+}
 export async function originalData(c,projection){
  const rows=[];
  for(const item of projection){
   const columns=item.columns.map(quote).join(',');
-  const x=(await c.query(`SELECT count(*)::text rows,md5(coalesce(string_agg(md5(row_to_json(t)::text),'' ORDER BY md5(row_to_json(t)::text) COLLATE "C"),'')) digest FROM (SELECT ${columns} FROM ${item.table}) t`)).rows[0];
+  const x=(await c.query(`SELECT count(*)::text AS rows,md5(coalesce(string_agg(md5(row_to_json(t)::text),'' ORDER BY md5(row_to_json(t)::text) COLLATE "C"),'')) AS digest FROM (SELECT ${columns} FROM ${item.table}) t`)).rows[0];
   rows.push({table:item.table,columns:item.columns,...x});
  }
  return rows;
@@ -39,6 +47,6 @@ export async function snapshot(c){
  return {catalog,data,sequences};
 }
 export async function originalProjection(c){
- const result=(await c.query(`SELECT quote_ident(n.nspname)||'.'||quote_ident(t.relname) AS table,json_agg(a.attname ORDER BY a.attnum) columns FROM pg_class t JOIN pg_namespace n ON n.oid=t.relnamespace JOIN pg_attribute a ON a.attrelid=t.oid AND a.attnum>0 AND NOT a.attisdropped WHERE t.relkind IN ('r','p') AND n.nspname !~ '^pg_' AND n.nspname<>'information_schema' GROUP BY n.nspname,t.relname ORDER BY n.nspname,t.relname`)).rows;
+ const result=(await c.query(`SELECT quote_ident(n.nspname)||'.'||quote_ident(t.relname) AS table,json_agg(a.attname ORDER BY a.attnum) AS columns FROM pg_class t JOIN pg_namespace n ON n.oid=t.relnamespace JOIN pg_attribute a ON a.attrelid=t.oid AND a.attnum>0 AND NOT a.attisdropped WHERE t.relkind IN ('r','p') AND n.nspname !~ '^pg_' AND n.nspname<>'information_schema' GROUP BY n.nspname,t.relname ORDER BY n.nspname,t.relname`)).rows;
  return originalData(c,result);
 }

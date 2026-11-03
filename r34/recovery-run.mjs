@@ -3,17 +3,17 @@
 import fs from 'node:fs';import path from 'node:path';import assert from 'node:assert/strict';import crypto from 'node:crypto';import {spawn} from 'node:child_process';import {createRequire} from 'node:module';import {fileURLToPath} from 'node:url';
 import {authorize,endpoint,identity,quota,TARGET,SYSTEM_IDENTIFIER} from './policy.mjs';
 import {encrypt,decrypt,sha,transferURL} from './recovery-crypto.mjs';import {buildSources} from './verify-preparation.mjs';
-import {snapshot,originalProjection,originalData} from './catalog.mjs';import {isolationFlags,verifyIsolation} from '../chain/runtime-policy.mjs';
+import {snapshot,originalProjection,originalData,diagnoseCatalog} from './catalog.mjs';import {isolationFlags,verifyIsolation} from '../chain/runtime-policy.mjs';
 const IMAGE='supabase/postgres:17.11.0.003@sha256:7374d196da7e301512cc5329e18040e0f7bb856287b323777cdadecccbc6c7e4';
 const e=process.env,here=path.dirname(fileURLToPath(import.meta.url)),MAX=256*1024*1024,owned=[];let source,stage='ENTRY';
 async function docker(args,input,limit=MAX,strictWarnings=false){
  return new Promise((resolve,reject)=>{const childEnv=Object.fromEntries(Object.entries(e).filter(([k])=>!k.startsWith('R34_')&&!k.startsWith('ACTIONS_')&&!/TOKEN|PASSWORD|SECRET|PRIVATE_KEY/.test(k)));
-  const c=spawn('docker',args,{env:childEnv,stdio:['pipe','pipe','pipe']});const parts=[];let count=0,overflow=false,stderrBytes=0;
-  c.stdout.on('data',b=>{count+=b.length;if(count>limit){overflow=true;c.kill();}else parts.push(b);});c.stderr.on('data',b=>{stderrBytes+=b.length;});c.on('error',()=>reject(Error('NATIVE_START')));c.on('close',code=>code===0&&!overflow&&(!strictWarnings||stderrBytes===0)?resolve(Buffer.concat(parts)):reject(Error('NATIVE_EXIT_OR_LIMIT')));c.stdin.on('error',()=>{});c.stdin.end(input);
+  const c=spawn('docker',args,{env:childEnv,stdio:['pipe','pipe','pipe']});const parts=[];let count=0,overflow=false,stderrBytes=0,sqlstate='';
+  c.stdout.on('data',b=>{count+=b.length;if(count>limit){overflow=true;c.kill();}else parts.push(b);});c.stderr.on('data',b=>{stderrBytes+=b.length;const m=b.toString().match(/ERROR:\s+([0-9A-Z]{5})(?::|\s|$)/);if(m)sqlstate=m[1];});c.on('error',()=>reject(Error('NATIVE_START')));c.on('close',code=>code===0&&!overflow&&(!strictWarnings||stderrBytes===0)?resolve(Buffer.concat(parts)):reject(Error('NATIVE_EXIT_OR_LIMIT'+(sqlstate?'_SQLSTATE_'+sqlstate:''))));c.stdin.on('error',()=>{});c.stdin.end(input);
  });
 }
 const name=kind=>'r34-'+kind+'-'+crypto.randomBytes(8).toString('hex');
-async function sql(container,statement,db='postgres'){assert.ok(owned.includes(container),'OWNED_ISOLATED_ONLY');return (await docker(['exec','-i',container,'psql','-X','-q','-h','/tmp','-U','r34_recovery_owner','-d',db,'-v','ON_ERROR_STOP=1','-At'],statement)).toString();}
+async function sql(container,statement,db='postgres'){assert.ok(owned.includes(container),'OWNED_ISOLATED_ONLY');return (await docker(['exec','-i',container,'psql','-X','-q','-h','/tmp','-U','r34_recovery_owner','-d',db,'-v','ON_ERROR_STOP=1','-v','VERBOSITY=sqlstate','-At'],statement)).toString();}
 function adapter(container){return {query:async(statement,values)=>{assert.ok(!values);return {rows:JSON.parse((await sql(container,"SELECT coalesce(json_agg(r),'[]'::json) FROM ("+statement.replace(/;\s*$/,'')+') r;')).trim())};}};}
 async function isolated(){
  const n=name('restore'),ids=(await docker(['run','--rm','--network','none','--read-only','--user','postgres','--entrypoint','/bin/sh',IMAGE,'-c','id -u;id -g'])).toString().trim().split('\n');owned.push(n);
@@ -43,7 +43,7 @@ function externalBundle(text){
 }
 async function stock(c){
  const values=[];for(const t of ['warehouse_stock','warehouse_stock_movements','outlet_stock','outlet_stock_movements','warehouse_dispatches','warehouse_dispatch_lines','phoenix_movement_events']){
-  const q=await c.query(`SELECT count(*)::text rows,encode(sha256(convert_to(coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text COLLATE "C"),'[]'::jsonb)::text,'UTF8')),'hex') digest FROM public.${t} t`);values.push({table:t,...q.rows[0]});
+  const q=await c.query(`SELECT count(*)::text AS rows,encode(sha256(convert_to(coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text COLLATE "C"),'[]'::jsonb)::text,'UTF8')),'hex') AS digest FROM public.${t} t`);values.push({table:t,...q.rows[0]});
  }
  values.push({writers:(await c.query("SELECT md5(jsonb_agg(jsonb_build_array(p.oid::regprocedure::text,pg_get_functiondef(p.oid),p.proacl::text,p.proconfig) ORDER BY p.oid::regprocedure::text)::text) value FROM pg_proc p WHERE p.proname~*'fefo' OR p.prosrc~*'(insert[[:space:]]+into|update|delete[[:space:]]+from|truncate)[[:space:]]+(public[.])?\"?(warehouse_stock|warehouse_stock_movements|outlet_stock|outlet_stock_movements|warehouse_dispatches|warehouse_dispatch_lines|phoenix_movement_events)\\M'")).rows[0].value});return values;
 }
@@ -104,7 +104,8 @@ export async function rehearsal(){
   for(const k of Object.keys(e))assert.ok(!/R34_(DB_|STORAGE_|BACKUP_|R2_|EXTERNAL_)/.test(k),'REHEARSAL_HAS_NO_PRODUCTION_INPUT');
   stage='REHEARSAL_IMAGE_AND_SOURCE_VAULT';await docker(['pull',IMAGE]);const a=await isolated();
   await sql(a,"CREATE ROLE r34_synthetic_reader NOLOGIN;CREATE SCHEMA r34_synthetic;CREATE TABLE r34_synthetic.items(id int PRIMARY KEY,qty int);INSERT INTO r34_synthetic.items VALUES(1,1200);ALTER TABLE r34_synthetic.items ENABLE ROW LEVEL SECURITY;GRANT USAGE ON SCHEMA r34_synthetic TO r34_synthetic_reader;GRANT SELECT ON r34_synthetic.items TO r34_synthetic_reader;CREATE POLICY synthetic_read ON r34_synthetic.items FOR SELECT TO r34_synthetic_reader USING(id=1);CREATE FUNCTION r34_synthetic.identity_qty(v int) RETURNS int LANGUAGE sql IMMUTABLE AS 'SELECT v';CREATE TYPE r34_synthetic.unit AS ENUM('box','test');");
-  stage='REHEARSAL_SOURCE_CATALOG';const before=await snapshot(adapter(a)),projection=await originalProjection(adapter(a));
+  stage='REHEARSAL_SOURCE_CATALOG';let before;try{before=await snapshot(adapter(a));}catch(error){await diagnoseCatalog(adapter(a));throw error;}
+  stage='REHEARSAL_ORIGINAL_PROJECTION';const projection=await originalProjection(adapter(a));
   const dump=await docker(['exec',a,'pg_dump','-h','/tmp','-U','r34_recovery_owner','-Fc','--create']);
   // A separate container with the same cluster bootstrap role proves the archive transport.
   stage='REHEARSAL_TARGET_AND_KEY_RECOVERY';const b=await isolated();
@@ -121,8 +122,8 @@ export async function rehearsal(){
   stage='REHEARSAL_ORIGINAL_DATA_GUARD';await sql(b,'ALTER TABLE r34_synthetic.items ADD COLUMN extra text;');assert.deepEqual(await originalData(adapter(b),projection),projection);
   await sql(b,'UPDATE r34_synthetic.items SET qty=1201;');assert.notDeepEqual(await originalData(adapter(b),projection),projection,'DATA_DRIFT_MISSED');
   console.log('PASS_R34_SYNTHETIC_RESTORE_CATALOG_RLS_ACL_VAULT_NO_PRODUCTION_ACCESS');
- }catch{console.error('HOLD_R34_'+stage);process.exitCode=2;}finally{await cleanup();}
+ }catch(error){const code=/^NATIVE_EXIT_OR_LIMIT_SQLSTATE_[0-9A-Z]{5}$/.test(error.message)?'_'+error.message:'';console.error('HOLD_R34_'+stage+code);process.exitCode=2;}finally{await cleanup();}
 }
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){
- try{await recover();}catch{console.error('HOLD_R34_'+stage);process.exitCode=2;}finally{await cleanup();}
+ try{await recover();}catch(error){const code=/^NATIVE_EXIT_OR_LIMIT_SQLSTATE_[0-9A-Z]{5}$/.test(error.message)?'_'+error.message:'';console.error('HOLD_R34_'+stage+code);process.exitCode=2;}finally{await cleanup();}
 }
