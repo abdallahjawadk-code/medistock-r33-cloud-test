@@ -9,7 +9,16 @@ async function docker(args,input,allowFailure=false){return await new Promise((r
  p.stdout.on('data',b=>{length+=b.length;assert.ok(length<4*1024*1024);parts.push(b);});p.stderr.on('data',b=>errors.push(b));
  p.on('error',()=>reject(Error('NATIVE_START')));p.on('close',code=>{const result={code,out:Buffer.concat(parts).toString(),err:Buffer.concat(errors).toString()};if(code===0||allowFailure)resolve(result);else reject(Error('NATIVE_FAILED'));});p.stdin.on('error',()=>{});p.stdin.end(input);
 });}
-async function sql(text,allowFailure=false){return docker(['exec','-i',name,'psql','-X','-h','/tmp','-U','r33_isolated_restore','-d','postgres','-At','-v','ON_ERROR_STOP=1'],text,allowFailure);}
+async function sql(text,allowFailure=false){
+ const result=await docker(['exec','-i',name,'psql','-X','-h','/tmp','-U','r33_isolated_restore','-d','postgres','-At','-v','ON_ERROR_STOP=1','-v','VERBOSITY=terse'],text,true);
+ if(result.code!==0&&!allowFailure){
+  // This probe has no hosted connection or customer values: report only the
+  // first PostgreSQL error category/message from the synthetic catalog query.
+  const message=result.err.split('\n').find(l=>/^ERROR:/.test(l))||'NO_SQL_ERROR_LINE';
+  console.error(JSON.stringify({synthetic_sql_error:message.slice(0,250)}));throw Error('SYNTHETIC_SQL_FAILED');
+ }
+ return result;
+}
 const query=async q=>JSON.parse((await sql('SELECT coalesce(json_agg(r),\'[]\'::json) FROM ('+q+') r;')).out.trim());
 const seals=async()=>query('SELECT b FROM phoenix_private.central_needs_capability_breaches_v1() b');
 const manifest=s=>[...s.match(/  manifest\(relname\) AS \(([\s\S]*?)\n  \),\n  cn AS/)[1].matchAll(/'([^']+)'/g)].map(x=>x[1]);
@@ -58,7 +67,7 @@ try{
  await sql('BEGIN;'+annual.map(table).join('\n')+newSeal+'COMMIT;');
  await check('COMPAT_SEAL_ACCEPTS_ONLY_MEASURED_MANAGED_INHERITED_READ',async()=>{
   const breaches=await seals();
-  if(breaches.length)console.log(JSON.stringify({synthetic_fixture_diagnostics:true,breaches,roles:await query("SELECT rolname,rolcanlogin,rolinherit,rolbypassrls,rolsuper,rolcreaterole,rolcreatedb,rolreplication,rolconnlimit,rolconfig,pg_has_role(oid,'pg_read_all_data','USAGE') usage FROM pg_roles WHERE rolname IN ('supabase_etl_admin','supabase_read_only_user')"),memberships:await query("SELECT m.rolname member,g.rolname parent,gr.rolname grantor,a.admin_option,a.inherit_option,a.set_option FROM pg_auth_members a JOIN pg_roles m ON m.oid=a.member JOIN pg_roles g ON g.oid=a.roleid JOIN pg_roles gr ON gr.oid=a.grantor WHERE m.rolname IN ('supabase_etl_admin','supabase_read_only_user')")}));
+  if(breaches.length)console.log(JSON.stringify({synthetic_fixture_diagnostics:true,breaches,roles:await query("SELECT rolname,rolcanlogin,rolinherit,rolbypassrls,rolsuper,rolcreaterole,rolcreatedb,rolreplication,rolconnlimit,rolconfig,pg_has_role(oid,'pg_read_all_data','USAGE') AS effective_read_usage FROM pg_roles WHERE rolname IN ('supabase_etl_admin','supabase_read_only_user')"),memberships:await query("SELECT m.rolname AS member_name,g.rolname AS parent_name,gr.rolname AS grantor_name,a.admin_option,a.inherit_option,a.set_option FROM pg_auth_members a JOIN pg_roles m ON m.oid=a.member JOIN pg_roles g ON g.oid=a.roleid JOIN pg_roles gr ON gr.oid=a.grantor WHERE m.rolname IN ('supabase_etl_admin','supabase_read_only_user')")}));
   assert.deepEqual(breaches,[]);
  });
  await check('MANAGED_ROLE_MEMBERSHIPS_AND_ATTRIBUTES_UNCHANGED',async()=>assert.deepEqual(await roleFP(),baselineRoles));
